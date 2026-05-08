@@ -8,8 +8,11 @@ let helsinkiTZ = TimeZone(identifier: "Europe/Helsinki")!
 
 let dayStart = 9   // 09:00
 let dayEnd = 19    // 19:00
-let pixelsPerMinute: CGFloat = 1.2
+let basePixelsPerMinute: CGFloat = 1.2
+let zoomMin: Double = 0.5
+let zoomMax: Double = 4.0
 let snapMinutes = 15
+let obsidianVaultName = "Brain dump"
 
 // MARK: - Plan file path for a date
 
@@ -240,6 +243,9 @@ class DayState: ObservableObject {
     @Published var dateString: String = ""
     @Published var lastError: String?
     @Published var nowMinute: Int = 0
+    @Published var zoom: Double = 1.0
+
+    var pixelsPerMinute: CGFloat { basePixelsPerMinute * CGFloat(zoom) }
 
     private var pre: String = ""
     private var post: String = ""
@@ -257,12 +263,44 @@ class DayState: ObservableObject {
         startClock()
     }
 
+    // MARK: zoom
+
+    func zoomIn() { setZoom(zoom * 1.2) }
+    func zoomOut() { setZoom(zoom / 1.2) }
+    func zoomBy(delta: Double) {
+        // delta in arbitrary units; 1 unit ~= 8% change
+        let factor = pow(1.08, delta)
+        setZoom(zoom * factor)
+    }
+    func setZoom(_ value: Double) {
+        zoom = min(max(value, zoomMin), zoomMax)
+    }
+
+    // MARK: status changes with (done HH:MM) tagging
+
     func setStatus(_ block: Block, _ status: BlockStatus) {
         guard let idx = blocks.firstIndex(of: block) else { return }
-        if blocks[idx].status != status {
-            blocks[idx].status = status
-            scheduleSave()
+        if blocks[idx].status == status { return }
+        blocks[idx].status = status
+        blocks[idx].title = applyDoneTag(blocks[idx].title, status: status)
+        scheduleSave()
+    }
+
+    private func applyDoneTag(_ title: String, status: BlockStatus) -> String {
+        let stripped = stripDoneTag(title)
+        if status == .done {
+            let nowStr = String(format: "%02d:%02d", nowMinute / 60, nowMinute % 60)
+            return "\(stripped) (done \(nowStr))"
         }
+        return stripped
+    }
+
+    private func stripDoneTag(_ title: String) -> String {
+        let pattern = #"\s*\(done \d{1,2}:\d{2}\)\s*$"#
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return title }
+        let range = NSRange(title.startIndex..<title.endIndex, in: title)
+        return regex.stringByReplacingMatches(in: title, range: range, withTemplate: "")
+            .trimmingCharacters(in: .whitespaces)
     }
 
     deinit {
@@ -310,7 +348,9 @@ class DayState: ObservableObject {
 
     func cycleStatus(_ block: Block) {
         guard let idx = blocks.firstIndex(of: block) else { return }
-        blocks[idx].status = blocks[idx].status.cycle()
+        let newStatus = blocks[idx].status.cycle()
+        blocks[idx].status = newStatus
+        blocks[idx].title = applyDoneTag(blocks[idx].title, status: newStatus)
         scheduleSave()
     }
 
@@ -404,24 +444,67 @@ struct DayTimelineView: View {
         return max(dayEnd * 60, latest)
     }
 
+    private var pxPerMin: CGFloat { state.pixelsPerMinute }
+
     private var totalHeight: CGFloat {
-        CGFloat(dayEndMin - dayStartMin) * pixelsPerMinute
+        CGFloat(dayEndMin - dayStartMin) * pxPerMin
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            header
-            Divider()
-            ScrollView {
-                ZStack(alignment: .topLeading) {
-                    hourGrid
-                    blocksLayer
-                    nowIndicator
+        ZStack(alignment: .bottomTrailing) {
+            VStack(spacing: 0) {
+                header
+                Divider()
+                ScrollView {
+                    ZStack(alignment: .topLeading) {
+                        hourGrid
+                        blocksLayer
+                        nowIndicator
+                    }
+                    .frame(height: totalHeight)
                 }
-                .frame(height: totalHeight)
             }
+            zoomControls
+                .padding(12)
         }
         .background(Color(NSColor.windowBackgroundColor))
+    }
+
+    private var zoomControls: some View {
+        HStack(spacing: 0) {
+            Button(action: { state.zoomOut() }) {
+                Image(systemName: "minus.magnifyingglass")
+                    .font(.system(size: 13, weight: .medium))
+                    .frame(width: 28, height: 28)
+            }
+            .buttonStyle(.plain)
+            .keyboardShortcut("-", modifiers: .command)
+
+            Divider().frame(height: 16)
+
+            Button(action: { state.setZoom(1.0) }) {
+                Text("\(Int(state.zoom * 100))%")
+                    .font(.system(size: 11, weight: .medium))
+                    .frame(width: 44, height: 28)
+            }
+            .buttonStyle(.plain)
+            .keyboardShortcut("0", modifiers: .command)
+
+            Divider().frame(height: 16)
+
+            Button(action: { state.zoomIn() }) {
+                Image(systemName: "plus.magnifyingglass")
+                    .font(.system(size: 13, weight: .medium))
+                    .frame(width: 28, height: 28)
+            }
+            .buttonStyle(.plain)
+            .keyboardShortcut("=", modifiers: .command)
+        }
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(Color(NSColor.controlBackgroundColor).opacity(0.92))
+                .shadow(color: Color.black.opacity(0.18), radius: 6, x: 0, y: 2)
+        )
     }
 
     private var header: some View {
@@ -450,7 +533,7 @@ struct DayTimelineView: View {
                         .fill(Color.gray.opacity(0.15))
                         .frame(height: 1)
                 }
-                .frame(height: 60 * pixelsPerMinute, alignment: .top)
+                .frame(height: 60 * pxPerMin, alignment: .top)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -460,7 +543,7 @@ struct DayTimelineView: View {
                 .onEnded { value in
                     // Only treat as a tap if user did not drag
                     if abs(value.translation.height) < 4 && abs(value.translation.width) < 4 {
-                        let minute = dayStartMin + Int(value.location.y / pixelsPerMinute)
+                        let minute = dayStartMin + Int(value.location.y / pxPerMin)
                         state.addBlock(at: minute)
                     }
                 }
@@ -478,8 +561,117 @@ struct DayTimelineView: View {
 
     @ViewBuilder
     private func blockView(_ block: Block) -> some View {
-        let topOffset = CGFloat(block.startMin - dayStartMin) * pixelsPerMinute
-        let height = max(20, CGFloat(block.durationMin) * pixelsPerMinute)
+        BlockRow(
+            block: block,
+            state: state,
+            dayStartMin: dayStartMin,
+            renamingBlockId: $renamingBlockId,
+            renamingText: $renamingText
+        )
+    }
+
+    private func setStatus(_ block: Block, _ status: BlockStatus) {
+        state.setStatus(block, status)
+    }
+
+    @ViewBuilder
+    private var nowIndicator: some View {
+        if state.nowMinute >= dayStartMin && state.nowMinute <= dayEndMin {
+            let y = CGFloat(state.nowMinute - dayStartMin) * pxPerMin
+            HStack(spacing: 0) {
+                Circle()
+                    .fill(Color.red)
+                    .frame(width: 8, height: 8)
+                Rectangle()
+                    .fill(Color.red)
+                    .frame(height: 1)
+            }
+            .padding(.leading, 50)
+            .offset(y: y)
+        }
+    }
+
+    private func timeStr(_ min: Int) -> String {
+        String(format: "%02d:%02d", min / 60, min % 60)
+    }
+}
+
+// MARK: - Block row with drag/resize/Obsidian deep link
+
+struct BlockRow: View {
+    let block: Block
+    let state: DayState
+    let dayStartMin: Int
+    @Binding var renamingBlockId: UUID?
+    @Binding var renamingText: String
+
+    @GestureState private var moveDelta: CGFloat = 0
+    @GestureState private var topResizeDelta: CGFloat = 0
+    @GestureState private var bottomResizeDelta: CGFloat = 0
+
+    private var pxPerMin: CGFloat { state.pixelsPerMinute }
+
+    private var liveStartMin: Int {
+        block.startMin + Int((moveDelta + topResizeDelta) / pxPerMin)
+    }
+
+    private var liveEndMin: Int {
+        block.endMin + Int((moveDelta + bottomResizeDelta) / pxPerMin)
+    }
+
+    private var topOffset: CGFloat {
+        CGFloat(liveStartMin - dayStartMin) * pxPerMin
+    }
+
+    private var height: CGFloat {
+        max(20, CGFloat(liveEndMin - liveStartMin) * pxPerMin)
+    }
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            background
+
+            if renamingBlockId == block.id {
+                renameField
+            } else {
+                bodyContent
+            }
+
+            // Resize handles
+            resizeHandle(top: true)
+                .frame(maxWidth: .infinity, alignment: .topLeading)
+            resizeHandle(top: false)
+                .frame(maxWidth: .infinity, alignment: .bottomLeading)
+                .offset(y: max(0, height - 6))
+        }
+        .frame(height: height, alignment: .top)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .offset(x: 0, y: topOffset)
+        .padding(.trailing, 12)
+        .contextMenu {
+            Button("Open in Obsidian") { openInObsidian() }
+            Divider()
+            Button("Mark planned") { state.setStatus(block, .planned) }
+            Button("Mark in progress") { state.setStatus(block, .inProgress) }
+            Button("Mark done") { state.setStatus(block, .done) }
+            Button("Mark skipped") { state.setStatus(block, .skipped) }
+            Divider()
+            Button("Rename") {
+                renamingText = state.titleWithoutDoneTag(block.title)
+                renamingBlockId = block.id
+            }
+            Button("Delete", role: .destructive) {
+                state.deleteBlock(block)
+            }
+        }
+    }
+
+    private var background: some View {
+        RoundedRectangle(cornerRadius: 6)
+            .fill(block.status.color.opacity(0.20))
+    }
+
+    private var bodyContent: some View {
         HStack(spacing: 8) {
             Button(action: { state.cycleStatus(block) }) {
                 Text(checkboxGlyph(block.status))
@@ -491,75 +683,93 @@ struct DayTimelineView: View {
             .buttonStyle(.plain)
             .padding(.leading, 6)
 
-            if renamingBlockId == block.id {
-                TextField("Task", text: $renamingText, onCommit: {
-                    state.updateTitle(block, newTitle: renamingText)
-                    renamingBlockId = nil
-                })
-                .textFieldStyle(.plain)
+            Text(blockLabel())
                 .font(.system(size: 12))
-                .onSubmit {
-                    state.updateTitle(block, newTitle: renamingText)
-                    renamingBlockId = nil
-                }
-            } else {
-                Text(blockLabel(block))
-                    .font(.system(size: 12))
-                    .lineLimit(2)
-                    .foregroundColor(textColor(for: block.status))
-                    .onTapGesture(count: 2) {
-                        renamingText = block.title
-                        renamingBlockId = block.id
-                    }
-            }
+                .lineLimit(2)
+                .foregroundColor(textColor(for: block.status))
+
             Spacer()
         }
         .frame(height: height, alignment: .top)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 6)
-                .fill(block.status.color.opacity(0.18))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 6)
-                        .stroke(block.status.color.opacity(0.5), lineWidth: 1)
-                )
+        .contentShape(Rectangle())
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 6)
+                .updating($moveDelta) { value, gestureState, _ in
+                    gestureState = value.translation.height
+                }
+                .onEnded { value in
+                    let dyMin = Int(value.translation.height / pxPerMin)
+                    let newStart = block.startMin + dyMin
+                    let newEnd = block.endMin + dyMin
+                    state.updateTime(block, newStartMin: newStart, newEndMin: newEnd)
+                }
         )
-        .offset(x: 0, y: topOffset)
-        .padding(.trailing, 12)
-        .contextMenu {
-            Button("Mark planned") { setStatus(block, .planned) }
-            Button("Mark in progress") { setStatus(block, .inProgress) }
-            Button("Mark done") { setStatus(block, .done) }
-            Button("Mark skipped") { setStatus(block, .skipped) }
-            Divider()
-            Button("Rename") {
-                renamingText = block.title
-                renamingBlockId = block.id
-            }
-            Button("Delete", role: .destructive) {
-                state.deleteBlock(block)
-            }
+        .onTapGesture {
+            openInObsidian()
         }
     }
 
-    private func setStatus(_ block: Block, _ status: BlockStatus) {
-        state.setStatus(block, status)
+    private var renameField: some View {
+        HStack(spacing: 8) {
+            Text(checkboxGlyph(block.status))
+                .font(.system(size: 12, weight: .bold))
+                .foregroundColor(block.status.color)
+                .frame(width: 18, height: 18)
+                .padding(.leading, 6)
+
+            TextField("Task", text: $renamingText, onCommit: {
+                state.updateTitle(block, newTitle: renamingText)
+                renamingBlockId = nil
+            })
+            .textFieldStyle(.plain)
+            .font(.system(size: 12))
+            .onSubmit {
+                state.updateTitle(block, newTitle: renamingText)
+                renamingBlockId = nil
+            }
+            .onExitCommand {
+                renamingBlockId = nil
+            }
+
+            Spacer()
+        }
+        .frame(height: height, alignment: .top)
     }
 
     @ViewBuilder
-    private var nowIndicator: some View {
-        if state.nowMinute >= dayStartMin && state.nowMinute <= dayEndMin {
-            let y = CGFloat(state.nowMinute - dayStartMin) * pixelsPerMinute
-            HStack(spacing: 0) {
-                Circle()
-                    .fill(Color.red)
-                    .frame(width: 8, height: 8)
-                Rectangle()
-                    .fill(Color.red)
-                    .frame(height: 1)
-            }
-            .padding(.leading, 50)
-            .offset(y: y)
+    private func resizeHandle(top: Bool) -> some View {
+        Rectangle()
+            .fill(Color.white.opacity(0.0001))
+            .frame(height: 6)
+            .gesture(
+                DragGesture(minimumDistance: 1)
+                    .updating(top ? $topResizeDelta : $bottomResizeDelta) { value, gestureState, _ in
+                        gestureState = value.translation.height
+                    }
+                    .onEnded { value in
+                        let dyMin = Int(value.translation.height / pxPerMin)
+                        if top {
+                            let newStart = block.startMin + dyMin
+                            state.updateTime(block, newStartMin: newStart, newEndMin: block.endMin)
+                        } else {
+                            let newEnd = block.endMin + dyMin
+                            state.updateTime(block, newStartMin: block.startMin, newEndMin: newEnd)
+                        }
+                    }
+            )
+    }
+
+    private func openInObsidian() {
+        let path = planFilePath(for: state.date)
+        let fileName = (path as NSString).lastPathComponent
+        let relPath = "claude-mcp-daily-plans/\(fileName)"
+        guard let encodedVault = obsidianVaultName.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+              let encodedFile = relPath.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else {
+            return
+        }
+        let urlString = "obsidian://open?vault=\(encodedVault)&file=\(encodedFile)"
+        if let url = URL(string: urlString) {
+            NSWorkspace.shared.open(url)
         }
     }
 
@@ -580,16 +790,22 @@ struct DayTimelineView: View {
         }
     }
 
-    private func blockLabel(_ block: Block) -> String {
-        let h1 = block.startMin / 60
-        let m1 = block.startMin % 60
-        let h2 = block.endMin / 60
-        let m2 = block.endMin % 60
+    private func blockLabel() -> String {
+        let h1 = liveStartMin / 60
+        let m1 = liveStartMin % 60
+        let h2 = liveEndMin / 60
+        let m2 = liveEndMin % 60
         return String(format: "%02d:%02d-%02d:%02d  %@", h1, m1, h2, m2, block.title)
     }
+}
 
-    private func timeStr(_ min: Int) -> String {
-        String(format: "%02d:%02d", min / 60, min % 60)
+extension DayState {
+    func titleWithoutDoneTag(_ title: String) -> String {
+        let pattern = #"\s*\(done \d{1,2}:\d{2}\)\s*$"#
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return title }
+        let range = NSRange(title.startIndex..<title.endIndex, in: title)
+        return regex.stringByReplacingMatches(in: title, range: range, withTemplate: "")
+            .trimmingCharacters(in: .whitespaces)
     }
 }
 
@@ -598,6 +814,7 @@ struct DayTimelineView: View {
 class AppDelegate: NSObject, NSApplicationDelegate {
     var window: NSWindow!
     let state = DayState()
+    private var scrollMonitor: Any?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let view = DayTimelineView(state: state)
@@ -613,6 +830,19 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         window.center()
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+        installScrollMonitor()
+    }
+
+    private func installScrollMonitor() {
+        scrollMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
+            guard let self = self else { return event }
+            if event.modifierFlags.contains(.command) {
+                let delta = Double(event.scrollingDeltaY)
+                self.state.zoomBy(delta: delta * 0.5)
+                return nil
+            }
+            return event
+        }
     }
 }
 
