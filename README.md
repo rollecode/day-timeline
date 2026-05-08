@@ -1,8 +1,8 @@
-# day-timeline
+# 🗓️ Day timeline
 
 Sunsama-style vertical day timeline for macOS. Reads, renders, and writes back the same Obsidian Day Planner markdown file Obsidian itself uses, so the file stays the single source of truth.
 
-## 🛠️
+## 🛠️ Build
 
 ```
 swift build -c release
@@ -11,7 +11,7 @@ swift build -c release
 
 Requires macOS 13+ and the Swift toolchain.
 
-## ✨
+## ✨ Features
 
 - Vertical timeline 09:00-19:00, expanding to fit blocks outside that range
 - Click status circle to cycle planned → in progress → done → skipped, with completion timestamp appended automatically
@@ -23,7 +23,7 @@ Requires macOS 13+ and the Swift toolchain.
 - FSEvents file watch with a 2 s mtime poll fallback keeps the view in sync with Obsidian and `/plan_today` edits
 - Atomic save touches only the `## Day Planner` section, every other section preserved byte-for-byte
 
-## 📐
+## 📐 Plan file format
 
 ```
 - [ ] 10:00 - 11:00 Task name (Source)
