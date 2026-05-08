@@ -611,12 +611,17 @@ struct BlockRow: View {
 
     private var pxPerMin: CGFloat { state.pixelsPerMinute }
 
+    private func snappedDeltaMin(_ dy: CGFloat) -> Int {
+        let raw = Double(dy / pxPerMin)
+        return Int((raw / Double(snapMinutes)).rounded()) * snapMinutes
+    }
+
     private var liveStartMin: Int {
-        block.startMin + Int((moveDelta + topResizeDelta) / pxPerMin)
+        block.startMin + snappedDeltaMin(moveDelta + topResizeDelta)
     }
 
     private var liveEndMin: Int {
-        block.endMin + Int((moveDelta + bottomResizeDelta) / pxPerMin)
+        block.endMin + snappedDeltaMin(moveDelta + bottomResizeDelta)
     }
 
     private var topOffset: CGFloat {
