@@ -204,6 +204,7 @@ struct PlanFile {
 class FileWatcher {
     private var source: DispatchSourceFileSystemObject?
     private var fd: Int32 = -1
+    private var watchedPath: String = ""
     var onChange: () -> Void
 
     init(onChange: @escaping () -> Void) {
@@ -211,17 +212,44 @@ class FileWatcher {
     }
 
     func watch(path: String) {
+        watchedPath = path
+        rewatch()
+    }
+
+    private func rewatch() {
         stop()
-        let directoryPath = (path as NSString).deletingLastPathComponent
-        fd = open(directoryPath, O_EVTONLY)
-        if fd < 0 { return }
+        // Watch the FILE itself, not its parent directory. Editing the file's
+        // contents does not change the directory's mtime, so a directory watch
+        // misses Obsidian's saves. The trade-off: when an editor does atomic
+        // write (write tmp + rename), our fd becomes stale on .rename / .delete
+        // and we have to re-open.
+        guard !watchedPath.isEmpty else { return }
+        let cPath = (watchedPath as NSString).utf8String
+        guard let cPath = cPath else { return }
+        fd = open(cPath, O_EVTONLY)
+        if fd < 0 {
+            // File doesn't exist yet - retry shortly
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+                self?.rewatch()
+            }
+            return
+        }
         source = DispatchSource.makeFileSystemObjectSource(
             fileDescriptor: fd,
-            eventMask: [.write, .extend, .rename, .delete],
+            eventMask: [.write, .extend, .rename, .delete, .attrib, .revoke],
             queue: DispatchQueue.main
         )
         source?.setEventHandler { [weak self] in
-            self?.onChange()
+            guard let self = self else { return }
+            let event = self.source?.data ?? []
+            self.onChange()
+            // If the file was renamed, deleted, or revoked, re-open against the
+            // path so we keep tracking the new inode.
+            if event.contains(.rename) || event.contains(.delete) || event.contains(.revoke) {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+                    self?.rewatch()
+                }
+            }
         }
         source?.setCancelHandler { [weak self] in
             if let fd = self?.fd, fd >= 0 { close(fd) }
@@ -243,7 +271,10 @@ class DayState: ObservableObject {
     @Published var dateString: String = ""
     @Published var lastError: String?
     @Published var nowMinute: Int = 0
-    @Published var zoom: Double = 1.0
+    @Published var zoom: Double = {
+        let saved = UserDefaults.standard.double(forKey: "day-timeline.zoom")
+        return (saved >= zoomMin && saved <= zoomMax) ? saved : 1.0
+    }()
 
     var pixelsPerMinute: CGFloat { basePixelsPerMinute * CGFloat(zoom) }
 
@@ -274,6 +305,7 @@ class DayState: ObservableObject {
     }
     func setZoom(_ value: Double) {
         zoom = min(max(value, zoomMin), zoomMax)
+        UserDefaults.standard.set(zoom, forKey: "day-timeline.zoom")
     }
 
     // MARK: status changes with (done HH:MM) tagging
@@ -464,10 +496,38 @@ struct DayTimelineView: View {
                     .frame(height: totalHeight)
                 }
             }
+            addBlockButton
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .bottomLeading)
             zoomControls
                 .padding(12)
         }
         .background(Color(NSColor.windowBackgroundColor))
+    }
+
+    private var addBlockButton: some View {
+        Button(action: {
+            // Add a 30-min block starting at the next quarter hour from now,
+            // clamped within the day's range.
+            let now = state.nowMinute
+            let snap = ((now / snapMinutes) + 1) * snapMinutes
+            let start = max(dayStartMin, min(dayEndMin - 30, snap))
+            state.addBlock(at: start)
+        }) {
+            Image(systemName: "plus")
+                .font(.system(size: 16, weight: .medium))
+                .frame(width: 36, height: 36)
+                .background(
+                    Circle()
+                        .fill(Color(NSColor.controlBackgroundColor).opacity(0.92))
+                        .shadow(color: Color.black.opacity(0.18), radius: 6, x: 0, y: 2)
+                )
+        }
+        .buttonStyle(.plain)
+        .keyboardShortcut("n", modifiers: .command)
+        .onHover { hovering in
+            if hovering { NSCursor.pointingHand.set() } else { NSCursor.arrow.set() }
+        }
     }
 
     private var zoomControls: some View {
@@ -537,17 +597,6 @@ struct DayTimelineView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .contentShape(Rectangle())
-        .gesture(
-            DragGesture(minimumDistance: 0)
-                .onEnded { value in
-                    // Only treat as a tap if user did not drag
-                    if abs(value.translation.height) < 4 && abs(value.translation.width) < 4 {
-                        let minute = dayStartMin + Int(value.location.y / pxPerMin)
-                        state.addBlock(at: minute)
-                    }
-                }
-        )
     }
 
     private var blocksLayer: some View {
@@ -691,8 +740,11 @@ struct BlockRow: View {
             }
             .buttonStyle(.plain)
             .padding(.leading, 6)
+            .onHover { hovering in
+                if hovering { NSCursor.pointingHand.set() } else { NSCursor.arrow.set() }
+            }
 
-            Text(blockLabel())
+            blockLabelView()
                 .font(.system(size: 12))
                 .lineLimit(2)
                 .foregroundColor(textColor(for: block.status))
@@ -701,21 +753,32 @@ struct BlockRow: View {
         }
         .frame(height: height, alignment: .top)
         .contentShape(Rectangle())
-        .simultaneousGesture(
-            DragGesture(minimumDistance: 6)
+        .onHover { hovering in
+            if hovering {
+                NSCursor.openHand.set()
+            } else {
+                NSCursor.arrow.set()
+            }
+        }
+        .highPriorityGesture(
+            DragGesture(minimumDistance: 0)
                 .updating($moveDelta) { value, gestureState, _ in
                     gestureState = value.translation.height
                 }
                 .onEnded { value in
-                    let dyMin = Int(value.translation.height / pxPerMin)
-                    let newStart = block.startMin + dyMin
-                    let newEnd = block.endMin + dyMin
-                    state.updateTime(block, newStartMin: newStart, newEndMin: newEnd)
+                    let dx = value.translation.width
+                    let dy = value.translation.height
+                    let isClick = abs(dx) < 4 && abs(dy) < 4
+                    if isClick {
+                        openInObsidian()
+                    } else {
+                        let dyMin = Int(dy / pxPerMin)
+                        let newStart = block.startMin + dyMin
+                        let newEnd = block.endMin + dyMin
+                        state.updateTime(block, newStartMin: newStart, newEndMin: newEnd)
+                    }
                 }
         )
-        .onTapGesture {
-            openInObsidian()
-        }
     }
 
     private var renameField: some View {
@@ -750,7 +813,14 @@ struct BlockRow: View {
         Rectangle()
             .fill(Color.white.opacity(0.0001))
             .frame(height: 6)
-            .gesture(
+            .onHover { hovering in
+                if hovering {
+                    NSCursor.resizeUpDown.set()
+                } else {
+                    NSCursor.arrow.set()
+                }
+            }
+            .highPriorityGesture(
                 DragGesture(minimumDistance: 1)
                     .updating(top ? $topResizeDelta : $bottomResizeDelta) { value, gestureState, _ in
                         gestureState = value.translation.height
@@ -799,12 +869,22 @@ struct BlockRow: View {
         }
     }
 
-    private func blockLabel() -> String {
+    private func blockLabelView() -> Text {
+        Text(composedAttributedLabel())
+    }
+
+    private func composedAttributedLabel() -> AttributedString {
         let h1 = liveStartMin / 60
         let m1 = liveStartMin % 60
         let h2 = liveEndMin / 60
         let m2 = liveEndMin % 60
-        return String(format: "%02d:%02d-%02d:%02d  %@", h1, m1, h2, m2, block.title)
+        let timePrefix = String(format: "%02d:%02d-%02d:%02d  ", h1, m1, h2, m2)
+        var prefixAttr = AttributedString(timePrefix)
+        prefixAttr.foregroundColor = NSColor.secondaryLabelColor
+        let titleAttr = (try? AttributedString(markdown: block.title,
+            options: AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnlyPreservingWhitespace)))
+            ?? AttributedString(block.title)
+        return prefixAttr + titleAttr
     }
 }
 
