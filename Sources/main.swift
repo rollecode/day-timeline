@@ -669,6 +669,10 @@ struct BlockRow: View {
     private var background: some View {
         RoundedRectangle(cornerRadius: 6)
             .fill(block.status.color.opacity(0.20))
+            .overlay(
+                RoundedRectangle(cornerRadius: 6)
+                    .stroke(Color(NSColor.windowBackgroundColor), lineWidth: 1)
+            )
     }
 
     private var bodyContent: some View {
