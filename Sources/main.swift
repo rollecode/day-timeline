@@ -284,6 +284,8 @@ class DayState: ObservableObject {
     private let watcher: FileWatcher
     private var saveDebounceTimer: Timer?
     private var clockTimer: Timer?
+    private var mtimeTimer: Timer?
+    private var lastMtime: Date?
     private(set) var date: Date = Date()
     private var savingNow: Bool = false
 
@@ -292,6 +294,25 @@ class DayState: ObservableObject {
         self.watcher.onChange = { [weak self] in self?.handleExternalChange() }
         loadToday()
         startClock()
+        startMtimePoll()
+    }
+
+    private func startMtimePoll() {
+        mtimeTimer?.invalidate()
+        mtimeTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
+            self?.checkMtime()
+        }
+    }
+
+    private func checkMtime() {
+        let path = planFilePath(for: date)
+        guard let attrs = try? FileManager.default.attributesOfItem(atPath: path),
+              let mtime = attrs[.modificationDate] as? Date else { return }
+        if let last = lastMtime, mtime == last { return }
+        lastMtime = mtime
+        // Debounce against our own writes
+        if savingNow { return }
+        loadFromDisk()
     }
 
     // MARK: zoom
@@ -338,6 +359,7 @@ class DayState: ObservableObject {
     deinit {
         watcher.stop()
         clockTimer?.invalidate()
+        mtimeTimer?.invalidate()
     }
 
     func loadToday() {
@@ -367,6 +389,10 @@ class DayState: ObservableObject {
         self.header = parsed.dayPlannerHeader.isEmpty ? "## Day Planner" : parsed.dayPlannerHeader
         self.blocks = parsed.blocks
         self.lastError = nil
+        if let attrs = try? FileManager.default.attributesOfItem(atPath: path),
+           let mtime = attrs[.modificationDate] as? Date {
+            self.lastMtime = mtime
+        }
     }
 
     private func handleExternalChange() {
@@ -436,6 +462,10 @@ class DayState: ObservableObject {
         do {
             try PlanFile.atomicWrite(path: path, content: content)
             lastError = nil
+            if let attrs = try? FileManager.default.attributesOfItem(atPath: path),
+               let mtime = attrs[.modificationDate] as? Date {
+                self.lastMtime = mtime
+            }
         } catch {
             lastError = "Save failed: \(error.localizedDescription)"
         }
@@ -507,23 +537,21 @@ struct DayTimelineView: View {
 
     private var addBlockButton: some View {
         Button(action: {
-            // Add a 30-min block starting at the next quarter hour from now,
-            // clamped within the day's range.
             let now = state.nowMinute
             let snap = ((now / snapMinutes) + 1) * snapMinutes
             let start = max(dayStartMin, min(dayEndMin - 30, snap))
             state.addBlock(at: start)
         }) {
             Image(systemName: "plus")
-                .font(.system(size: 16, weight: .medium))
-                .frame(width: 36, height: 36)
-                .background(
-                    Circle()
-                        .fill(Color(NSColor.controlBackgroundColor).opacity(0.92))
-                        .shadow(color: Color.black.opacity(0.18), radius: 6, x: 0, y: 2)
-                )
+                .font(.system(size: 13, weight: .medium))
+                .frame(width: 28, height: 28)
         }
         .buttonStyle(.plain)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(Color(NSColor.controlBackgroundColor).opacity(0.92))
+                .shadow(color: Color.black.opacity(0.18), radius: 6, x: 0, y: 2)
+        )
         .keyboardShortcut("n", modifiers: .command)
         .onHover { hovering in
             if hovering { NSCursor.pointingHand.set() } else { NSCursor.arrow.set() }
@@ -657,20 +685,16 @@ struct BlockRow: View {
     @GestureState private var moveDelta: CGFloat = 0
     @GestureState private var topResizeDelta: CGFloat = 0
     @GestureState private var bottomResizeDelta: CGFloat = 0
+    @State private var isHovered: Bool = false
 
     private var pxPerMin: CGFloat { state.pixelsPerMinute }
 
-    private func snappedDeltaMin(_ dy: CGFloat) -> Int {
-        let raw = Double(dy / pxPerMin)
-        return Int((raw / Double(snapMinutes)).rounded()) * snapMinutes
-    }
-
     private var liveStartMin: Int {
-        block.startMin + snappedDeltaMin(moveDelta + topResizeDelta)
+        block.startMin + Int((moveDelta + topResizeDelta) / pxPerMin)
     }
 
     private var liveEndMin: Int {
-        block.endMin + snappedDeltaMin(moveDelta + bottomResizeDelta)
+        block.endMin + Int((moveDelta + bottomResizeDelta) / pxPerMin)
     }
 
     private var topOffset: CGFloat {
@@ -688,8 +712,14 @@ struct BlockRow: View {
             if renamingBlockId == block.id {
                 renameField
             } else {
-                bodyContent
+                titleArea
             }
+
+            // Status button overlay - sits OUTSIDE the drag zone so its
+            // clicks are not stolen by the body gesture.
+            statusButton
+                .padding(.leading, 6)
+                .padding(.top, 4)
 
             // Resize handles
             resizeHandle(top: true)
@@ -722,61 +752,61 @@ struct BlockRow: View {
 
     private var background: some View {
         RoundedRectangle(cornerRadius: 6)
-            .fill(block.status.color.opacity(0.20))
+            .fill(block.status.color.opacity(isHovered ? 0.32 : 0.20))
             .overlay(
                 RoundedRectangle(cornerRadius: 6)
                     .stroke(Color(NSColor.windowBackgroundColor), lineWidth: 1)
             )
+            .shadow(color: Color.black.opacity(isHovered ? 0.10 : 0), radius: isHovered ? 4 : 0, x: 0, y: 1)
     }
 
-    private var bodyContent: some View {
-        HStack(spacing: 8) {
-            Button(action: { state.cycleStatus(block) }) {
-                Text(checkboxGlyph(block.status))
-                    .font(.system(size: 12, weight: .bold))
-                    .foregroundColor(block.status.color)
-                    .frame(width: 18, height: 18)
-                    .background(Color.white.opacity(0.0001))
-            }
-            .buttonStyle(.plain)
-            .padding(.leading, 6)
-            .onHover { hovering in
-                if hovering { NSCursor.pointingHand.set() } else { NSCursor.arrow.set() }
-            }
+    private var statusButton: some View {
+        Button(action: { state.cycleStatus(block) }) {
+            Text(checkboxGlyph(block.status))
+                .font(.system(size: 12, weight: .bold))
+                .foregroundColor(block.status.color)
+                .frame(width: 18, height: 18)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering in
+            if hovering { NSCursor.pointingHand.set() } else { NSCursor.arrow.set() }
+        }
+    }
 
+    private var titleArea: some View {
+        HStack(spacing: 8) {
+            Spacer().frame(width: 26) // gutter for status button overlay
             blockLabelView()
                 .font(.system(size: 12))
                 .lineLimit(2)
                 .foregroundColor(textColor(for: block.status))
-
             Spacer()
         }
         .frame(height: height, alignment: .top)
+        .padding(.leading, 6)
         .contentShape(Rectangle())
         .onHover { hovering in
+            isHovered = hovering
             if hovering {
                 NSCursor.openHand.set()
             } else {
                 NSCursor.arrow.set()
             }
         }
-        .highPriorityGesture(
-            DragGesture(minimumDistance: 0)
+        .gesture(
+            DragGesture(minimumDistance: 4)
                 .updating($moveDelta) { value, gestureState, _ in
                     gestureState = value.translation.height
                 }
                 .onEnded { value in
-                    let dx = value.translation.width
                     let dy = value.translation.height
-                    let isClick = abs(dx) < 4 && abs(dy) < 4
-                    if isClick {
-                        openInObsidian()
-                    } else {
-                        let dyMin = Int(dy / pxPerMin)
-                        let newStart = block.startMin + dyMin
-                        let newEnd = block.endMin + dyMin
-                        state.updateTime(block, newStartMin: newStart, newEndMin: newEnd)
-                    }
+                    if abs(dy) < 4 { return } // pure click, ignore (right-click for menu)
+                    let rawMin = Int(dy / pxPerMin)
+                    let snapped = Int((Double(rawMin) / Double(snapMinutes)).rounded()) * snapMinutes
+                    let newStart = block.startMin + snapped
+                    let newEnd = block.endMin + snapped
+                    state.updateTime(block, newStartMin: newStart, newEndMin: newEnd)
                 }
         )
     }
