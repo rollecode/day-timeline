@@ -4,7 +4,7 @@ Sunsama-style vertical day timeline for macOS. Reads, renders, and writes back t
 
 ## 🛠️ Build
 
-```
+```bash
 swift build -c release
 .build/release/day-timeline
 ```
@@ -25,7 +25,7 @@ Requires macOS 13+ and the Swift toolchain.
 
 ## 📐 Plan file format
 
-```
+```plaintext
 - [ ] 10:00 - 11:00 Task name (Source)
 - [>] 11:00 - 12:30 In-progress task
 - [x] 12:30 - 13:00 Completed task (done 12:58)
