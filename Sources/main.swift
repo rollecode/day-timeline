@@ -290,6 +290,7 @@ class DayState: ObservableObject {
     private var lastMtime: Date?
     private(set) var date: Date = Date()
     private var savingNow: Bool = false
+    private var lastAutoCompleteCheckMinute: Int = Int.min
 
     init() {
         self.watcher = FileWatcher(onChange: {})
@@ -341,10 +342,11 @@ class DayState: ObservableObject {
         scheduleSave()
     }
 
-    private func applyDoneTag(_ title: String, status: BlockStatus) -> String {
+    private func applyDoneTag(_ title: String, status: BlockStatus, at minute: Int? = nil) -> String {
         let stripped = stripDoneTag(title)
         if status == .done {
-            let nowStr = String(format: "%02d:%02d", nowMinute / 60, nowMinute % 60)
+            let m = minute ?? nowMinute
+            let nowStr = String(format: "%02d:%02d", m / 60, m % 60)
             return "\(stripped) (done \(nowStr))"
         }
         return stripped
@@ -391,6 +393,8 @@ class DayState: ObservableObject {
         self.header = parsed.dayPlannerHeader.isEmpty ? "## Day Planner" : parsed.dayPlannerHeader
         self.blocks = parsed.blocks
         self.lastError = nil
+        self.lastAutoCompleteCheckMinute = Int.min
+        autoCompleteElapsed()
         if let attrs = try? FileManager.default.attributesOfItem(atPath: path),
            let mtime = attrs[.modificationDate] as? Date {
             self.lastMtime = mtime
@@ -489,6 +493,22 @@ class DayState: ObservableObject {
         let comps = cal.dateComponents([.hour, .minute, .second], from: Date())
         nowMinute = (comps.hour ?? 0) * 60 + (comps.minute ?? 0)
         nowSecond = comps.second ?? 0
+        autoCompleteElapsed()
+    }
+
+    private func autoCompleteElapsed() {
+        var changed = false
+        for i in blocks.indices {
+            let b = blocks[i]
+            guard b.status == .planned || b.status == .inProgress else { continue }
+            if b.endMin > lastAutoCompleteCheckMinute && b.endMin <= nowMinute {
+                blocks[i].status = .done
+                blocks[i].title = applyDoneTag(b.title, status: .done, at: b.endMin)
+                changed = true
+            }
+        }
+        lastAutoCompleteCheckMinute = nowMinute
+        if changed { scheduleSave() }
     }
 }
 
