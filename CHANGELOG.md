@@ -2,6 +2,16 @@
 
 * Window floats above other apps and follows you across spaces (`window.level = .floating`, `canJoinAllSpaces`)
 
+### 0.4.0: 2026-05-11
+
+* Float window above other apps and follow you across spaces
+* Auto-scroll the timeline so the now indicator is centered when the window opens
+* Enlarge the now indicator dot to 12px and the line to 2px
+* Full weekday names in the header (Monday, not Mon)
+* Per-second clock with HH:MM:SS, locked to a fixed-width frame so digits do not jump
+* Bundle Instrument Serif and use it for the date and clock headings
+* Auto-complete blocks once their end time passes, tagging them `(done HH:MM)` at the scheduled end
+
 ### 0.3.0: 2026-05-08
 
 * Watch the plan file's own fd via FSEvents instead of the parent directory so Obsidian writes actually fire change events; re-open across atomic-write rename/delete; 2 s mtime poll as a belt-and-braces fallback
