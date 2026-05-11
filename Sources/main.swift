@@ -658,13 +658,13 @@ struct DayTimelineView: View {
             HStack(spacing: 0) {
                 Circle()
                     .fill(Color.red)
-                    .frame(width: 8, height: 8)
+                    .frame(width: 12, height: 12)
                 Rectangle()
                     .fill(Color.red)
-                    .frame(height: 1)
+                    .frame(height: 2)
             }
-            .padding(.leading, 50)
-            .offset(y: y)
+            .padding(.leading, 48)
+            .offset(y: y - 5)
         }
     }
 
