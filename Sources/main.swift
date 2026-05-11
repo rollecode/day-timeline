@@ -517,13 +517,23 @@ struct DayTimelineView: View {
             VStack(spacing: 0) {
                 header
                 Divider()
-                ScrollView {
-                    ZStack(alignment: .topLeading) {
-                        hourGrid
-                        blocksLayer
-                        nowIndicator
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        ZStack(alignment: .topLeading) {
+                            hourGrid
+                            blocksLayer
+                            nowIndicator
+                            nowAnchor
+                        }
+                        .frame(height: totalHeight)
                     }
-                    .frame(height: totalHeight)
+                    .onAppear {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                            withAnimation(nil) {
+                                proxy.scrollTo("now-anchor", anchor: .center)
+                            }
+                        }
+                    }
                 }
             }
             addBlockButton
@@ -649,6 +659,19 @@ struct DayTimelineView: View {
 
     private func setStatus(_ block: Block, _ status: BlockStatus) {
         state.setStatus(block, status)
+    }
+
+    private var nowAnchor: some View {
+        let clamped = max(dayStartMin, min(dayEndMin, state.nowMinute))
+        let y = CGFloat(clamped - dayStartMin) * pxPerMin
+        return VStack(spacing: 0) {
+            Color.clear.frame(height: y)
+            Color.clear
+                .frame(width: 1, height: 1)
+                .id("now-anchor")
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     @ViewBuilder
