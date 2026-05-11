@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import CoreText
 
 // MARK: - Constants
 
@@ -606,12 +607,12 @@ struct DayTimelineView: View {
     }
 
     private var header: some View {
-        HStack {
+        HStack(alignment: .firstTextBaseline) {
             Text(state.dateString)
-                .font(.system(size: 13, weight: .semibold))
+                .font(.custom("Instrument Serif", size: 22))
             Spacer()
             Text(timeStr(state.nowMinute))
-                .font(.system(size: 12))
+                .font(.custom("Instrument Serif", size: 20))
                 .foregroundColor(.secondary)
         }
         .padding(.horizontal, 12)
@@ -959,6 +960,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var scrollMonitor: Any?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        registerBundledFonts()
         let view = DayTimelineView(state: state)
         let hosting = NSHostingView(rootView: view)
         window = NSWindow(
@@ -975,6 +977,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         installScrollMonitor()
+    }
+
+    private func registerBundledFonts() {
+        let names = ["InstrumentSerif-Regular", "InstrumentSerif-Italic"]
+        for name in names {
+            guard let url = Bundle.module.url(forResource: name, withExtension: "ttf", subdirectory: "Fonts") else {
+                continue
+            }
+            CTFontManagerRegisterFontsForURL(url as CFURL, .process, nil)
+        }
     }
 
     private func installScrollMonitor() {

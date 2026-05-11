@@ -7,7 +7,10 @@ let package = Package(
     targets: [
         .executableTarget(
             name: "day-timeline",
-            path: "Sources"
+            path: "Sources",
+            resources: [
+                .copy("Resources/Fonts")
+            ]
         )
     ]
 )
