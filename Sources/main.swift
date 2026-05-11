@@ -367,7 +367,7 @@ class DayState: ObservableObject {
         var cal = Calendar(identifier: .gregorian)
         cal.timeZone = helsinkiTZ
         let comps = cal.dateComponents([.day, .month, .year, .weekday], from: date)
-        let dayNames = ["", "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+        let dayNames = ["", "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
         let weekdayName = dayNames[comps.weekday ?? 1]
         dateString = "\(weekdayName) \(comps.day ?? 0).\(comps.month ?? 0).\(comps.year ?? 0)"
         loadFromDisk()
