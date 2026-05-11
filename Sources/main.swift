@@ -272,6 +272,7 @@ class DayState: ObservableObject {
     @Published var dateString: String = ""
     @Published var lastError: String?
     @Published var nowMinute: Int = 0
+    @Published var nowSecond: Int = 0
     @Published var zoom: Double = {
         let saved = UserDefaults.standard.double(forKey: "day-timeline.zoom")
         return (saved >= zoomMin && saved <= zoomMax) ? saved : 1.0
@@ -477,7 +478,7 @@ class DayState: ObservableObject {
 
     private func startClock() {
         updateNow()
-        clockTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
+        clockTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
             self?.updateNow()
         }
     }
@@ -485,8 +486,9 @@ class DayState: ObservableObject {
     private func updateNow() {
         var cal = Calendar(identifier: .gregorian)
         cal.timeZone = helsinkiTZ
-        let comps = cal.dateComponents([.hour, .minute], from: Date())
+        let comps = cal.dateComponents([.hour, .minute, .second], from: Date())
         nowMinute = (comps.hour ?? 0) * 60 + (comps.minute ?? 0)
+        nowSecond = comps.second ?? 0
     }
 }
 
@@ -611,12 +613,17 @@ struct DayTimelineView: View {
             Text(state.dateString)
                 .font(.custom("Instrument Serif", size: 22))
             Spacer()
-            Text(timeStr(state.nowMinute))
+            Text(timeWithSecondsStr(state.nowMinute, state.nowSecond))
                 .font(.custom("Instrument Serif", size: 20))
                 .foregroundColor(.secondary)
+                .frame(width: 110, alignment: .trailing)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
+    }
+
+    private func timeWithSecondsStr(_ minute: Int, _ second: Int) -> String {
+        String(format: "%02d:%02d:%02d", minute / 60, minute % 60, second)
     }
 
     private var hourGrid: some View {
