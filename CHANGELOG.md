@@ -1,3 +1,7 @@
+### 0.3.1: 2026-05-11
+
+* Window floats above other apps and follows you across spaces (`window.level = .floating`, `canJoinAllSpaces`)
+
 ### 0.3.0: 2026-05-08
 
 * Watch the plan file's own fd via FSEvents instead of the parent directory so Obsidian writes actually fire change events; re-open across atomic-write rename/delete; 2 s mtime poll as a belt-and-braces fallback

@@ -946,6 +946,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         )
         window.title = "Day timeline"
         window.contentView = hosting
+        window.level = .floating
+        window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         window.center()
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
