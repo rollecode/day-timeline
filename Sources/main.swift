@@ -7,7 +7,7 @@ import CoreText
 let planDir = "\(NSHomeDirectory())/Documents/Brain dump/claude-mcp-daily-plans"
 let helsinkiTZ = TimeZone(identifier: "Europe/Helsinki")!
 
-let dayStart = 9   // 09:00
+let dayStart = 7   // 07:00
 let dayEnd = 19    // 19:00
 let basePixelsPerMinute: CGFloat = 1.2
 let zoomMin: Double = 0.5
