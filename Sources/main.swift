@@ -913,6 +913,7 @@ struct BlockRow: View {
                 .lineLimit(2)
                 .foregroundColor(textColor(for: block.status))
             Spacer()
+            serviceIcons
         }
         .frame(height: height, alignment: .top)
         .padding(.leading, 6)
@@ -940,6 +941,21 @@ struct BlockRow: View {
                     state.updateTime(block, newStartMin: newStart, newEndMin: newEnd)
                 }
         )
+    }
+
+    @ViewBuilder
+    private var serviceIcons: some View {
+        let services = decor.services
+        if !services.isEmpty {
+            HStack(spacing: 5) {
+                ForEach(services, id: \.self) { svc in
+                    Image(systemName: svc.symbol)
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundColor(svc.tint)
+                }
+            }
+            .padding(.trailing, 8)
+        }
     }
 
     private var renameField: some View {
