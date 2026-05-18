@@ -99,7 +99,7 @@ enum ServiceIcon: String, CaseIterable {
     var brand: Color {
         switch self {
         case .teams: return Color(red: 0x62/255.0, green: 0x64/255.0, blue: 0xA7/255.0)
-        case .meet: return Color(red: 0x00/255.0, green: 0x89/255.0, blue: 0x7B/255.0)
+        case .meet: return Color(red: 0x1A/255.0, green: 0x73/255.0, blue: 0xE8/255.0)
         case .slack: return Color(red: 0x4A/255.0, green: 0x15/255.0, blue: 0x4B/255.0)
         case .linear: return Color(red: 0x08/255.0, green: 0x09/255.0, blue: 0x0A/255.0)
         case .todoist: return Color(red: 0xE4/255.0, green: 0x43/255.0, blue: 0x32/255.0)
