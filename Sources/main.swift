@@ -352,7 +352,8 @@ struct BlockDecor {
             || title.range(of: #"\bteams\b"#, options: [.regularExpression, .caseInsensitive]) != nil {
             services.append(.teams)
         }
-        if lower.contains("meet.google.com") || lower.contains("google meet") {
+        if lower.contains("meet.google.com") || lower.contains("google meet")
+            || lower.contains("calendar") {
             services.append(.meet)
         }
         if lower.contains("slack") || lower.contains("huddle") {
@@ -1143,6 +1144,7 @@ struct BlockRow: View {
         .frame(height: height, alignment: .top)
         .padding(.leading, 6)
         .padding(.trailing, 10)
+        .padding(.top, 5)
         .contentShape(Rectangle())
         .onHover { hovering in
             isHovered = hovering
