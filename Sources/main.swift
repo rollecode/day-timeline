@@ -1124,12 +1124,12 @@ struct BlockRow: View {
 
     private var fillColor: Color {
         let faded = block.status == .done || block.status == .skipped
-        if decor.isMeeting {
-            return meetingMint.opacity(faded ? 0.30 : (isHovered ? 0.62 : 0.45))
-        }
         if let svc = decor.primary {
             let o = svc.fillOpacity
             return svc.brand.opacity(faded ? o.faded : (isHovered ? o.hover : o.base))
+        }
+        if decor.isMeeting {
+            return meetingMint.opacity(faded ? 0.30 : (isHovered ? 0.62 : 0.45))
         }
         return block.status.color.opacity(isHovered ? 0.32 : 0.20)
     }
