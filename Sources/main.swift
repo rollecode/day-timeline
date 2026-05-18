@@ -79,23 +79,244 @@ struct Block: Identifiable, Equatable {
 enum ServiceIcon: String, CaseIterable {
     case teams, meet, slack, linear, todoist
 
-    var symbol: String {
+    /// Official brand glyph (simple-icons, CC0). 24x24 viewBox path.
+    var pathData: String {
         switch self {
-        case .teams: return "person.2.fill"
-        case .meet: return "video.fill"
-        case .slack: return "bubble.left.and.bubble.right.fill"
-        case .linear: return "square.stack.3d.up.fill"
-        case .todoist: return "checklist"
+        case .slack:
+            return "M5.042 15.165a2.528 2.528 0 0 1-2.52 2.523A2.528 2.528 0 0 1 0 15.165a2.527 2.527 0 0 1 2.522-2.52h2.52v2.52zM6.313 15.165a2.527 2.527 0 0 1 2.521-2.52 2.527 2.527 0 0 1 2.521 2.52v6.313A2.528 2.528 0 0 1 8.834 24a2.528 2.528 0 0 1-2.521-2.522v-6.313zM8.834 5.042a2.528 2.528 0 0 1-2.521-2.52A2.528 2.528 0 0 1 8.834 0a2.528 2.528 0 0 1 2.521 2.522v2.52H8.834zM8.834 6.313a2.528 2.528 0 0 1 2.521 2.521 2.528 2.528 0 0 1-2.521 2.521H2.522A2.528 2.528 0 0 1 0 8.834a2.528 2.528 0 0 1 2.522-2.521h6.312zM18.956 8.834a2.528 2.528 0 0 1 2.522-2.521A2.528 2.528 0 0 1 24 8.834a2.528 2.528 0 0 1-2.522 2.521h-2.522V8.834zM17.688 8.834a2.528 2.528 0 0 1-2.523 2.521 2.527 2.527 0 0 1-2.52-2.521V2.522A2.527 2.527 0 0 1 15.165 0a2.528 2.528 0 0 1 2.523 2.522v6.312zM15.165 18.956a2.528 2.528 0 0 1 2.523 2.522A2.528 2.528 0 0 1 15.165 24a2.527 2.527 0 0 1-2.52-2.522v-2.522h2.52zM15.165 17.688a2.527 2.527 0 0 1-2.52-2.523 2.526 2.526 0 0 1 2.52-2.52h6.313A2.527 2.527 0 0 1 24 15.165a2.528 2.528 0 0 1-2.522 2.523h-6.313z"
+        case .teams:
+            return "M20.625 8.127q-.55 0-1.025-.205-.475-.205-.832-.563-.358-.357-.563-.832Q18 6.053 18 5.502q0-.54.205-1.02t.563-.837q.357-.358.832-.563.474-.205 1.025-.205.54 0 1.02.205t.837.563q.358.357.563.837.205.48.205 1.02 0 .55-.205 1.025-.205.475-.563.832-.357.358-.837.563-.48.205-1.02.205zm0-3.75q-.469 0-.797.328-.328.328-.328.797 0 .469.328.797.328.328.797.328.469 0 .797-.328.328-.328.328-.797 0-.469-.328-.797-.328-.328-.797-.328zM24 10.002v5.578q0 .774-.293 1.46-.293.685-.803 1.194-.51.51-1.195.803-.686.293-1.459.293-.445 0-.908-.105-.463-.106-.85-.329-.293.95-.855 1.729-.563.78-1.319 1.336-.756.557-1.67.861-.914.305-1.898.305-1.148 0-2.162-.398-1.014-.399-1.805-1.102-.79-.703-1.312-1.664t-.674-2.086h-5.8q-.411 0-.704-.293T0 16.881V6.873q0-.41.293-.703t.703-.293h8.59q-.34-.715-.34-1.5 0-.727.275-1.365.276-.639.75-1.114.475-.474 1.114-.75.638-.275 1.365-.275t1.365.275q.639.276 1.114.75.474.475.75 1.114.275.638.275 1.365t-.275 1.365q-.276.639-.75 1.113-.475.475-1.114.75-.638.276-1.365.276-.188 0-.375-.024-.188-.023-.375-.058v1.078h10.875q.469 0 .797.328.328.328.328.797zM12.75 2.373q-.41 0-.78.158-.368.158-.638.434-.27.275-.428.639-.158.363-.158.773 0 .41.158.78.159.368.428.638.27.27.639.428.369.158.779.158.41 0 .773-.158.364-.159.64-.428.274-.27.433-.639.158-.369.158-.779 0-.41-.158-.773-.159-.364-.434-.64-.275-.275-.639-.433-.363-.158-.773-.158zM6.937 9.814h2.25V7.94H2.814v1.875h2.25v6h1.875zm10.313 7.313v-6.75H12v6.504q0 .41-.293.703t-.703.293H8.309q.152.809.556 1.5.405.691.985 1.19.58.497 1.318.779.738.281 1.582.281.926 0 1.746-.352.82-.351 1.436-.966.615-.616.966-1.43.352-.815.352-1.752zm5.25-1.547v-5.203h-3.75v6.855q.305.305.691.452.387.146.809.146.469 0 .879-.176.41-.175.715-.48.304-.305.48-.715t.176-.879Z"
+        case .meet:
+            return "M5.53 2.13 0 7.75h5.53zm.398 0v5.62h7.608v3.65l5.47-4.45c-.014-1.22.031-2.25-.025-3.46-.148-1.09-1.287-1.47-2.236-1.36zM23.1 4.32c-.802.295-1.358.995-2.047 1.49-2.506 2.05-4.982 4.12-7.468 6.19 3.025 2.59 6.04 5.18 9.065 7.76 1.218.671 1.428-.814 1.328-1.64v-13a.828.828 0 0 0-.877-.825zM.038 8.15v7.7h5.53v-7.7zm13.577 8.1H6.008v5.62c3.864-.006 7.737.011 11.58-.009 1.02-.07 1.618-1.12 1.468-2.07v-2.51l-5.47-4.68v3.65zm-13.577 0c.02 1.44-.041 2.88.033 4.31.162.948 1.158 1.43 2.047 1.31h3.464v-5.62z"
+        case .linear:
+            return "M2.886 4.18A11.982 11.982 0 0 1 11.99 0C18.624 0 24 5.376 24 12.009c0 3.64-1.62 6.903-4.18 9.105L2.887 4.18ZM1.817 5.626l16.556 16.556c-.524.33-1.075.62-1.65.866L.951 7.277c.247-.575.537-1.126.866-1.65ZM.322 9.163l14.515 14.515c-.71.172-1.443.282-2.195.322L0 11.358a12 12 0 0 1 .322-2.195Zm-.17 4.862 9.823 9.824a12.02 12.02 0 0 1-9.824-9.824Z"
+        case .todoist:
+            return "M21 0H3C1.35 0 0 1.35 0 3v3.858s3.854 2.24 4.098 2.38c.31.18.694.177 1.004 0 .26-.147 8.02-4.608 8.136-4.675.279-.161.58-.107.748-.01.164.097.606.348.84.48.232.134.221.502.013.622l-9.712 5.59c-.346.2-.69.204-1.048.002C3.478 10.907.998 9.463 0 8.882v2.02l4.098 2.38c.31.18.694.177 1.004 0 .26-.147 8.02-4.609 8.136-4.676.279-.16.58-.106.748-.008.164.096.606.347.84.48.232.133.221.5.013.62-.208.121-9.288 5.346-9.712 5.59-.346.2-.69.205-1.048.002C3.478 14.951.998 13.506 0 12.926v2.02l4.098 2.38c.31.18.694.177 1.004 0 .26-.147 8.02-4.609 8.136-4.676.279-.16.58-.106.748-.009.164.097.606.348.84.48.232.133.221.502.013.622l-9.712 5.59c-.346.199-.69.204-1.048.001C3.478 18.994.998 17.55 0 16.97V21c0 1.65 1.35 3 3 3h18c1.65 0 3-1.35 3-3V3c0-1.65-1.35-3-3-3z"
+        }
+    }
+}
+
+// MARK: - Minimal SVG path renderer (24x24 viewBox -> Path)
+
+struct SVGPathShape: Shape {
+    let pathData: String
+
+    func path(in rect: CGRect) -> Path {
+        let raw = SVGPathParser.path(from: pathData)
+        let scale = min(rect.width, rect.height) / 24.0
+        let dx = (rect.width - 24.0 * scale) / 2.0
+        let dy = (rect.height - 24.0 * scale) / 2.0
+        let transform = CGAffineTransform(translationX: rect.minX + dx, y: rect.minY + dy)
+            .scaledBy(x: scale, y: scale)
+        return raw.applying(transform)
+    }
+}
+
+enum SVGPathParser {
+    static func path(from d: String) -> Path {
+        var path = Path()
+        let scanner = Scanner(d)
+        var cur = CGPoint.zero
+        var start = CGPoint.zero
+        var lastCubicCtrl: CGPoint?
+        var lastQuadCtrl: CGPoint?
+        var cmd: Character = " "
+
+        while let token = scanner.nextToken() {
+            if case let .command(c) = token {
+                cmd = c
+                if c == "Z" || c == "z" {
+                    path.closeSubpath()
+                    cur = start
+                    lastCubicCtrl = nil
+                    lastQuadCtrl = nil
+                }
+                continue
+            }
+            // token is a number; push it back and let the command handler read.
+            scanner.pushBack(token)
+
+            let rel = cmd.isLowercase
+            func num() -> CGFloat { scanner.nextNumber() ?? 0 }
+            func pt(_ x: CGFloat, _ y: CGFloat) -> CGPoint {
+                rel ? CGPoint(x: cur.x + x, y: cur.y + y) : CGPoint(x: x, y: y)
+            }
+
+            switch Character(cmd.lowercased()) {
+            case "m":
+                let p = pt(num(), num())
+                path.move(to: p); cur = p; start = p
+                cmd = rel ? "l" : "L"
+                lastCubicCtrl = nil; lastQuadCtrl = nil
+            case "l":
+                let p = pt(num(), num())
+                path.addLine(to: p); cur = p
+                lastCubicCtrl = nil; lastQuadCtrl = nil
+            case "h":
+                let x = num()
+                let p = CGPoint(x: rel ? cur.x + x : x, y: cur.y)
+                path.addLine(to: p); cur = p
+                lastCubicCtrl = nil; lastQuadCtrl = nil
+            case "v":
+                let y = num()
+                let p = CGPoint(x: cur.x, y: rel ? cur.y + y : y)
+                path.addLine(to: p); cur = p
+                lastCubicCtrl = nil; lastQuadCtrl = nil
+            case "c":
+                let c1 = pt(num(), num())
+                let c2 = pt(num(), num())
+                let e = pt(num(), num())
+                path.addCurve(to: e, control1: c1, control2: c2)
+                cur = e; lastCubicCtrl = c2; lastQuadCtrl = nil
+            case "s":
+                let c1 = lastCubicCtrl.map { CGPoint(x: 2*cur.x - $0.x, y: 2*cur.y - $0.y) } ?? cur
+                let c2 = pt(num(), num())
+                let e = pt(num(), num())
+                path.addCurve(to: e, control1: c1, control2: c2)
+                cur = e; lastCubicCtrl = c2; lastQuadCtrl = nil
+            case "q":
+                let c = pt(num(), num())
+                let e = pt(num(), num())
+                path.addQuadCurve(to: e, control: c)
+                cur = e; lastQuadCtrl = c; lastCubicCtrl = nil
+            case "t":
+                let c = lastQuadCtrl.map { CGPoint(x: 2*cur.x - $0.x, y: 2*cur.y - $0.y) } ?? cur
+                let e = pt(num(), num())
+                path.addQuadCurve(to: e, control: c)
+                cur = e; lastQuadCtrl = c; lastCubicCtrl = nil
+            case "a":
+                let rx = num(), ry = num(), rot = num()
+                let large = num() != 0, sweep = num() != 0
+                let e = pt(num(), num())
+                addArc(&path, from: cur, to: e, rx: rx, ry: ry,
+                       xRotDeg: rot, largeArc: large, sweep: sweep)
+                cur = e; lastCubicCtrl = nil; lastQuadCtrl = nil
+            default:
+                break
+            }
+        }
+        return path
+    }
+
+    /// Endpoint-to-center SVG arc conversion, approximated with cubic beziers.
+    private static func addArc(_ path: inout Path, from p0: CGPoint, to p1: CGPoint,
+                               rx rxIn: CGFloat, ry ryIn: CGFloat, xRotDeg: CGFloat,
+                               largeArc: Bool, sweep: Bool) {
+        if rxIn == 0 || ryIn == 0 || (p0 == p1) {
+            path.addLine(to: p1); return
+        }
+        var rx = abs(rxIn), ry = abs(ryIn)
+        let phi = xRotDeg * .pi / 180
+        let cosP = cos(phi), sinP = sin(phi)
+        let dx = (p0.x - p1.x) / 2, dy = (p0.y - p1.y) / 2
+        let x1p = cosP * dx + sinP * dy
+        let y1p = -sinP * dx + cosP * dy
+        var lam = (x1p*x1p)/(rx*rx) + (y1p*y1p)/(ry*ry)
+        if lam > 1 { let s = sqrt(lam); rx *= s; ry *= s; lam = 1 }
+        let sign: CGFloat = (largeArc != sweep) ? 1 : -1
+        let num = max(0, rx*rx*ry*ry - rx*rx*y1p*y1p - ry*ry*x1p*x1p)
+        let den = rx*rx*y1p*y1p + ry*ry*x1p*x1p
+        let co = sign * sqrt(den == 0 ? 0 : num/den)
+        let cxp = co * (rx * y1p / ry)
+        let cyp = co * (-ry * x1p / rx)
+        let cx = cosP*cxp - sinP*cyp + (p0.x + p1.x)/2
+        let cy = sinP*cxp + cosP*cyp + (p0.y + p1.y)/2
+
+        func angle(_ ux: CGFloat, _ uy: CGFloat, _ vx: CGFloat, _ vy: CGFloat) -> CGFloat {
+            let dot = ux*vx + uy*vy
+            let len = sqrt((ux*ux+uy*uy)*(vx*vx+vy*vy))
+            var a = acos(min(1, max(-1, len == 0 ? 1 : dot/len)))
+            if ux*vy - uy*vx < 0 { a = -a }
+            return a
+        }
+        let theta1 = angle(1, 0, (x1p-cxp)/rx, (y1p-cyp)/ry)
+        var dTheta = angle((x1p-cxp)/rx, (y1p-cyp)/ry, (-x1p-cxp)/rx, (-y1p-cyp)/ry)
+        if !sweep && dTheta > 0 { dTheta -= 2 * .pi }
+        if sweep && dTheta < 0 { dTheta += 2 * .pi }
+
+        let segments = max(1, Int(ceil(abs(dTheta) / (.pi / 2))))
+        let delta = dTheta / CGFloat(segments)
+        let t = 4.0 / 3.0 * tan(delta / 4)
+        var ang = theta1
+        for _ in 0..<segments {
+            let cos1 = cos(ang), sin1 = sin(ang)
+            let cos2 = cos(ang + delta), sin2 = sin(ang + delta)
+            func map(_ ex: CGFloat, _ ey: CGFloat) -> CGPoint {
+                CGPoint(x: cosP*rx*ex - sinP*ry*ey + cx,
+                        y: sinP*rx*ex + cosP*ry*ey + cy)
+            }
+            let e2 = map(cos2, sin2)
+            let c1 = map(cos1 - t*sin1, sin1 + t*cos1)
+            let c2 = map(cos2 + t*sin2, sin2 - t*cos2)
+            path.addCurve(to: e2, control1: c1, control2: c2)
+            ang += delta
         }
     }
 
-    var tint: Color {
-        switch self {
-        case .teams: return Color(red: 0x62/255.0, green: 0x64/255.0, blue: 0xA7/255.0)
-        case .meet: return Color(red: 0x00/255.0, green: 0x83/255.0, blue: 0x2D/255.0)
-        case .slack: return Color(red: 0x4A/255.0, green: 0x15/255.0, blue: 0x4B/255.0)
-        case .linear: return Color(red: 0x5E/255.0, green: 0x6A/255.0, blue: 0xD2/255.0)
-        case .todoist: return Color(red: 0xE4/255.0, green: 0x43/255.0, blue: 0x32/255.0)
+    enum Token { case command(Character); case number(CGFloat) }
+
+    final class Scanner {
+        private let chars: [Character]
+        private var i = 0
+        private var pushed: Token?
+
+        init(_ s: String) { chars = Array(s) }
+
+        func pushBack(_ t: Token) { pushed = t }
+
+        func nextToken() -> Token? {
+            if let p = pushed { pushed = nil; return p }
+            skipSeparators()
+            guard i < chars.count else { return nil }
+            let c = chars[i]
+            if c.isLetter { i += 1; return .command(c) }
+            if let n = scanNumber() { return .number(n) }
+            return nil
+        }
+
+        func nextNumber() -> CGFloat? {
+            if let p = pushed {
+                pushed = nil
+                if case let .number(v) = p { return v }
+                return nil
+            }
+            skipSeparators()
+            return scanNumber()
+        }
+
+        private func skipSeparators() {
+            while i < chars.count {
+                let c = chars[i]
+                if c == " " || c == "," || c == "\n" || c == "\t" || c == "\r" { i += 1 }
+                else { break }
+            }
+        }
+
+        private func scanNumber() -> CGFloat? {
+            skipSeparators()
+            var s = ""
+            var seenDot = false
+            if i < chars.count, chars[i] == "-" || chars[i] == "+" {
+                s.append(chars[i]); i += 1
+            }
+            while i < chars.count {
+                let c = chars[i]
+                if c.isNumber {
+                    s.append(c); i += 1
+                } else if c == "." {
+                    if seenDot { break } // second dot starts a new number
+                    seenDot = true; s.append(c); i += 1
+                } else if c == "e" || c == "E" {
+                    s.append(c); i += 1
+                    if i < chars.count, chars[i] == "-" || chars[i] == "+" {
+                        s.append(chars[i]); i += 1
+                    }
+                } else {
+                    break
+                }
+            }
+            guard let v = Double(s) else { return nil }
+            return CGFloat(v)
         }
     }
 }
@@ -106,6 +327,10 @@ let meetingMint = Color(red: 0x7E/255.0, green: 0xFF/255.0, blue: 0xE1/255.0)
 struct BlockDecor {
     let isMeeting: Bool
     let services: [ServiceIcon]
+
+    /// Exactly one icon per block: first match in detection priority order
+    /// (teams, meet, slack, linear, todoist).
+    var primary: ServiceIcon? { services.first }
 
     /// Case-insensitive keywords that mark a block as a meeting.
     /// "Dude x" is matched case-sensitively as an explicit exception.
@@ -910,13 +1135,14 @@ struct BlockRow: View {
             Spacer().frame(width: 26) // gutter for status button overlay
             blockLabelView()
                 .font(.system(size: 12))
-                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
                 .foregroundColor(textColor(for: block.status))
-            Spacer()
-            serviceIcons
+            Spacer(minLength: 4)
+            serviceIcon
         }
         .frame(height: height, alignment: .top)
         .padding(.leading, 6)
+        .padding(.trailing, 10)
         .contentShape(Rectangle())
         .onHover { hovering in
             isHovered = hovering
@@ -944,17 +1170,11 @@ struct BlockRow: View {
     }
 
     @ViewBuilder
-    private var serviceIcons: some View {
-        let services = decor.services
-        if !services.isEmpty {
-            HStack(spacing: 5) {
-                ForEach(services, id: \.self) { svc in
-                    Image(systemName: svc.symbol)
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundColor(svc.tint)
-                }
-            }
-            .padding(.trailing, 8)
+    private var serviceIcon: some View {
+        if let svc = decor.primary {
+            SVGPathShape(pathData: svc.pathData)
+                .fill(Color.white)
+                .frame(width: 14, height: 14)
         }
     }
 
