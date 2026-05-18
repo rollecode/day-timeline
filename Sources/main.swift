@@ -1065,8 +1065,8 @@ struct BlockRow: View {
             // Status button overlay - sits OUTSIDE the drag zone so its
             // clicks are not stolen by the body gesture.
             statusButton
-                .padding(.leading, 6)
-                .padding(.top, 4)
+                .padding(.leading, 8)
+                .padding(.top, 6)
 
             // Resize handles
             resizeHandle(top: true)
@@ -1132,19 +1132,21 @@ struct BlockRow: View {
     }
 
     private var titleArea: some View {
-        HStack(spacing: 8) {
-            Spacer().frame(width: 26) // gutter for status button overlay
+        HStack(alignment: .top, spacing: 8) {
+            Spacer().frame(width: 24) // gutter for status button overlay
             blockLabelView()
                 .font(.system(size: 12))
                 .fixedSize(horizontal: false, vertical: true)
                 .foregroundColor(textColor(for: block.status))
-            Spacer(minLength: 4)
+            Spacer(minLength: 6)
             serviceIcon
         }
-        .frame(height: height, alignment: .top)
-        .padding(.leading, 6)
+        .padding(.top, 7)
+        .padding(.leading, 8)
         .padding(.trailing, 10)
-        .padding(.top, 5)
+        .padding(.bottom, 6)
+        .frame(height: height, alignment: .top)
+        .clipped()
         .contentShape(Rectangle())
         .onHover { hovering in
             isHovered = hovering
