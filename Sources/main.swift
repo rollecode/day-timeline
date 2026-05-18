@@ -74,6 +74,76 @@ struct Block: Identifiable, Equatable {
     }
 }
 
+// MARK: - Block decoration (meeting detection + service icons)
+
+enum ServiceIcon: String, CaseIterable {
+    case teams, meet, slack, linear, todoist
+
+    var symbol: String {
+        switch self {
+        case .teams: return "person.2.fill"
+        case .meet: return "video.fill"
+        case .slack: return "bubble.left.and.bubble.right.fill"
+        case .linear: return "square.stack.3d.up.fill"
+        case .todoist: return "checklist"
+        }
+    }
+
+    var tint: Color {
+        switch self {
+        case .teams: return Color(red: 0x62/255.0, green: 0x64/255.0, blue: 0xA7/255.0)
+        case .meet: return Color(red: 0x00/255.0, green: 0x83/255.0, blue: 0x2D/255.0)
+        case .slack: return Color(red: 0x4A/255.0, green: 0x15/255.0, blue: 0x4B/255.0)
+        case .linear: return Color(red: 0x5E/255.0, green: 0x6A/255.0, blue: 0xD2/255.0)
+        case .todoist: return Color(red: 0xE4/255.0, green: 0x43/255.0, blue: 0x32/255.0)
+        }
+    }
+}
+
+/// The official Dude mint, used to flag meeting blocks.
+let meetingMint = Color(red: 0x7E/255.0, green: 0xFF/255.0, blue: 0xE1/255.0)
+
+struct BlockDecor {
+    let isMeeting: Bool
+    let services: [ServiceIcon]
+
+    /// Case-insensitive keywords that mark a block as a meeting.
+    /// "Dude x" is matched case-sensitively as an explicit exception.
+    static let meetingKeywords = [
+        "daily standup", "standup", "daily", "weekly", "monthly",
+        "retro", "retrospective", "planning", "grooming", "refinement",
+        "sync", "1:1", "1-on-1", "google meet", "meet.google.com",
+        "teams.microsoft.com", "microsoft teams", "lounas", "lunch",
+        "huddle", "palaveri", "kokous", "demo", "catch-up", "catchup"
+    ]
+
+    static func compute(for title: String) -> BlockDecor {
+        let lower = title.lowercased()
+        var isMeeting = meetingKeywords.contains { lower.contains($0) }
+        if title.contains("Dude x") { isMeeting = true } // case-sensitive exception
+
+        var services: [ServiceIcon] = []
+        if lower.contains("teams.microsoft.com") || lower.contains("microsoft teams")
+            || title.range(of: #"\bteams\b"#, options: [.regularExpression, .caseInsensitive]) != nil {
+            services.append(.teams)
+        }
+        if lower.contains("meet.google.com") || lower.contains("google meet") {
+            services.append(.meet)
+        }
+        if lower.contains("slack") || lower.contains("huddle") {
+            services.append(.slack)
+        }
+        if title.range(of: #"\b[A-Z]{2,}-\d+\b"#, options: .regularExpression) != nil
+            || lower.contains("linear.app") {
+            services.append(.linear)
+        }
+        if lower.contains("todoist") {
+            services.append(.todoist)
+        }
+        return BlockDecor(isMeeting: isMeeting, services: services)
+    }
+}
+
 // MARK: - Plan file parser/writer
 
 struct PlanFile {
@@ -801,9 +871,19 @@ struct BlockRow: View {
         }
     }
 
+    private var decor: BlockDecor { BlockDecor.compute(for: block.title) }
+
+    private var fillColor: Color {
+        if decor.isMeeting {
+            let faded = block.status == .done || block.status == .skipped
+            return meetingMint.opacity(faded ? 0.30 : (isHovered ? 0.62 : 0.45))
+        }
+        return block.status.color.opacity(isHovered ? 0.32 : 0.20)
+    }
+
     private var background: some View {
         RoundedRectangle(cornerRadius: 6)
-            .fill(block.status.color.opacity(isHovered ? 0.32 : 0.20))
+            .fill(fillColor)
             .overlay(
                 RoundedRectangle(cornerRadius: 6)
                     .stroke(Color(NSColor.windowBackgroundColor), lineWidth: 1)
