@@ -94,6 +94,26 @@ enum ServiceIcon: String, CaseIterable {
             return "M21 0H3C1.35 0 0 1.35 0 3v3.858s3.854 2.24 4.098 2.38c.31.18.694.177 1.004 0 .26-.147 8.02-4.608 8.136-4.675.279-.161.58-.107.748-.01.164.097.606.348.84.48.232.134.221.502.013.622l-9.712 5.59c-.346.2-.69.204-1.048.002C3.478 10.907.998 9.463 0 8.882v2.02l4.098 2.38c.31.18.694.177 1.004 0 .26-.147 8.02-4.609 8.136-4.676.279-.16.58-.106.748-.008.164.096.606.347.84.48.232.133.221.5.013.62-.208.121-9.288 5.346-9.712 5.59-.346.2-.69.205-1.048.002C3.478 14.951.998 13.506 0 12.926v2.02l4.098 2.38c.31.18.694.177 1.004 0 .26-.147 8.02-4.609 8.136-4.676.279-.16.58-.106.748-.009.164.097.606.348.84.48.232.133.221.502.013.622l-9.712 5.59c-.346.199-.69.204-1.048.001C3.478 18.994.998 17.55 0 16.97V21c0 1.65 1.35 3 3 3h18c1.65 0 3-1.35 3-3V3c0-1.65-1.35-3-3-3z"
         }
     }
+
+    /// Official brand color.
+    var brand: Color {
+        switch self {
+        case .teams: return Color(red: 0x62/255.0, green: 0x64/255.0, blue: 0xA7/255.0)
+        case .meet: return Color(red: 0x00/255.0, green: 0x89/255.0, blue: 0x7B/255.0)
+        case .slack: return Color(red: 0x4A/255.0, green: 0x15/255.0, blue: 0x4B/255.0)
+        case .linear: return Color(red: 0x08/255.0, green: 0x09/255.0, blue: 0x0A/255.0)
+        case .todoist: return Color(red: 0xE4/255.0, green: 0x43/255.0, blue: 0x32/255.0)
+        }
+    }
+
+    /// Background fill opacity (normal, hovered, faded-when-done/skipped).
+    /// Linear's near-black needs more weight to register on the dark window.
+    var fillOpacity: (base: Double, hover: Double, faded: Double) {
+        switch self {
+        case .linear: return (0.60, 0.75, 0.40)
+        default: return (0.32, 0.46, 0.18)
+        }
+    }
 }
 
 // MARK: - Minimal SVG path renderer (24x24 viewBox -> Path)
@@ -1103,9 +1123,13 @@ struct BlockRow: View {
     private var decor: BlockDecor { BlockDecor.compute(for: block.title) }
 
     private var fillColor: Color {
+        let faded = block.status == .done || block.status == .skipped
         if decor.isMeeting {
-            let faded = block.status == .done || block.status == .skipped
             return meetingMint.opacity(faded ? 0.30 : (isHovered ? 0.62 : 0.45))
+        }
+        if let svc = decor.primary {
+            let o = svc.fillOpacity
+            return svc.brand.opacity(faded ? o.faded : (isHovered ? o.hover : o.base))
         }
         return block.status.color.opacity(isHovered ? 0.32 : 0.20)
     }
