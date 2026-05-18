@@ -1180,6 +1180,7 @@ struct BlockRow: View {
             SVGPathShape(pathData: svc.pathData)
                 .fill(Color.white)
                 .frame(width: 14, height: 14)
+                .padding(.trailing, 10)
         }
     }
 
