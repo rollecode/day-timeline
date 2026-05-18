@@ -945,12 +945,13 @@ struct DayTimelineView: View {
     private var hourGrid: some View {
         VStack(alignment: .leading, spacing: 0) {
             ForEach(Array(stride(from: dayStartMin, through: dayEndMin, by: 60)), id: \.self) { m in
-                HStack(spacing: 0) {
+                HStack(alignment: .top, spacing: 0) {
                     Text(timeStr(m))
                         .font(.system(size: 10))
                         .foregroundColor(.secondary)
                         .frame(width: 44, alignment: .trailing)
                         .padding(.trailing, 6)
+                        .offset(y: -5) // center label on the line, keep line at the exact hour
                     Rectangle()
                         .fill(Color.gray.opacity(0.15))
                         .frame(height: 1)
