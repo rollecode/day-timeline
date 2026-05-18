@@ -2,6 +2,11 @@
 
 * Window floats above other apps and follows you across spaces (`window.level = .floating`, `canJoinAllSpaces`)
 
+### 0.5.0: 2026-05-18
+
+* Flag meeting blocks with the official Dude mint background (`#7effe1`); keyword list is case-insensitive (daily standup, weekly, google meet, lounas, ...) with "Dude x" matched case-sensitively
+* Show a brand-tinted icon on blocks that reference Microsoft Teams, Google Meet, Slack/huddle, Linear issue IDs or linear.app, and Todoist
+
 ### 0.4.0: 2026-05-11
 
 * Float window above other apps and follow you across spaces
