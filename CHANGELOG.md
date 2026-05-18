@@ -1,6 +1,10 @@
-### 0.3.1: 2026-05-11
+### 0.6.0: 2026-05-18
 
-* Window floats above other apps and follows you across spaces (`window.level = .floating`, `canJoinAllSpaces`)
+* Render the real brand glyph per block (Teams, Google Meet, Slack, Linear, Todoist) via embedded SVG paths, single white icon picked by detection priority
+* Tint each block with its primary service brand color, opacity scaled by status; Google Meet uses Google blue (`#1A73E8`); service color is preferred over the meeting mint
+* Treat blocks mentioning "Calendar" as Google Meet and standups as Slack huddles
+* Pin the hour-grid line to the exact hour and clip blocks to their time-slot height so blocks line up with the grid
+* Tidy block text insets and service-icon padding
 
 ### 0.5.0: 2026-05-18
 
