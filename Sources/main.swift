@@ -1076,6 +1076,7 @@ struct BlockRow: View {
                 .offset(y: max(0, height - 6))
         }
         .frame(height: height, alignment: .top)
+        .clipped()
         .frame(maxWidth: .infinity, alignment: .leading)
         .offset(x: 0, y: topOffset)
         .padding(.trailing, 12)
@@ -1136,7 +1137,6 @@ struct BlockRow: View {
             Spacer().frame(width: 24) // gutter for status button overlay
             blockLabelView()
                 .font(.system(size: 12))
-                .fixedSize(horizontal: false, vertical: true)
                 .foregroundColor(textColor(for: block.status))
             Spacer(minLength: 6)
             serviceIcon
