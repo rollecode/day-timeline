@@ -352,12 +352,13 @@ struct BlockDecor {
             || title.range(of: #"\bteams\b"#, options: [.regularExpression, .caseInsensitive]) != nil {
             services.append(.teams)
         }
+        // Slack (huddle / standup) wins over a generic Calendar/Meet link.
+        if lower.contains("slack") || lower.contains("huddle") || lower.contains("standup") {
+            services.append(.slack)
+        }
         if lower.contains("meet.google.com") || lower.contains("google meet")
             || lower.contains("calendar") {
             services.append(.meet)
-        }
-        if lower.contains("slack") || lower.contains("huddle") {
-            services.append(.slack)
         }
         if title.range(of: #"\b[A-Z]{2,}-\d+\b"#, options: .regularExpression) != nil
             || lower.contains("linear.app") {
@@ -1180,7 +1181,8 @@ struct BlockRow: View {
             SVGPathShape(pathData: svc.pathData)
                 .fill(Color.white)
                 .frame(width: 14, height: 14)
-                .padding(.trailing, 10)
+                .padding(.trailing, 2)
+                .padding(.top, 2)
         }
     }
 
