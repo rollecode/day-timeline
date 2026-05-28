@@ -835,6 +835,7 @@ struct DayTimelineView: View {
     @ObservedObject var state: DayState
     @State private var renamingBlockId: UUID?
     @State private var renamingText: String = ""
+    @AppStorage("day-timeline.followNow") private var followNow: Bool = true
 
     private var dayStartMin: Int {
         let earliest = state.blocks.map(\.startMin).min() ?? (dayStart * 60)
@@ -874,11 +875,26 @@ struct DayTimelineView: View {
                             }
                         }
                     }
+                    .onChange(of: state.nowMinute) { _ in
+                        guard followNow else { return }
+                        withAnimation(.easeInOut(duration: 0.3)) {
+                            proxy.scrollTo("now-anchor", anchor: .center)
+                        }
+                    }
+                    .onChange(of: followNow) { enabled in
+                        guard enabled else { return }
+                        withAnimation(.easeInOut(duration: 0.3)) {
+                            proxy.scrollTo("now-anchor", anchor: .center)
+                        }
+                    }
                 }
             }
-            addBlockButton
-                .padding(12)
-                .frame(maxWidth: .infinity, alignment: .bottomLeading)
+            HStack(spacing: 8) {
+                addBlockButton
+                followToggle
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .bottomLeading)
             zoomControls
                 .padding(12)
         }
@@ -903,6 +919,25 @@ struct DayTimelineView: View {
                 .shadow(color: Color.black.opacity(0.18), radius: 6, x: 0, y: 2)
         )
         .keyboardShortcut("n", modifiers: .command)
+        .onHover { hovering in
+            if hovering { NSCursor.pointingHand.set() } else { NSCursor.arrow.set() }
+        }
+    }
+
+    private var followToggle: some View {
+        Button(action: { followNow.toggle() }) {
+            Image(systemName: followNow ? "scope" : "arrow.up.and.down")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundColor(.white)
+                .frame(width: 28, height: 28)
+        }
+        .buttonStyle(.plain)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(Color(NSColor.controlBackgroundColor).opacity(0.92))
+                .shadow(color: Color.black.opacity(0.18), radius: 6, x: 0, y: 2)
+        )
+        .help(followNow ? "Keep now centered: on" : "Keep now centered: off")
         .onHover { hovering in
             if hovering { NSCursor.pointingHand.set() } else { NSCursor.arrow.set() }
         }

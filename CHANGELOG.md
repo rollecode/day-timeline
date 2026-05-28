@@ -1,3 +1,7 @@
+### 0.7.0: 2026-05-28
+
+* Keep-now-centered toggle next to the + button (default on, persisted): re-centers the timeline on the red now pin every minute and when re-enabled
+
 ### 0.6.0: 2026-05-18
 
 * Render the real brand glyph per block (Teams, Google Meet, Slack, Linear, Todoist) via embedded SVG paths, single white icon picked by detection priority
