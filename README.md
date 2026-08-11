@@ -1,10 +1,10 @@
-# 🗓️ Day timeline
+# ⏳ Day timeline
 
 Sunsama-style vertical day timeline for macOS. Reads, renders, and writes back the same Obsidian Day Planner markdown file Obsidian itself uses, so the file stays the single source of truth.
 
 ## Build
 
-```bash
+```cmake
 swift build -c release
 .build/release/day-timeline
 ```
@@ -13,7 +13,7 @@ Requires macOS 13+ and the Swift toolchain.
 
 ## App bundle
 
-```bash
+```yaml
 Scripts/make-app.sh --install
 ```
 
