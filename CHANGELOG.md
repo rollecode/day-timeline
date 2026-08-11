@@ -2,6 +2,8 @@
 
 * Minimize button in the title bar, plus a menu bar with Minimize (cmd+M), Zoom, Close (cmd+W), Hide (cmd+H) and Quit (cmd+Q) - the app had no menu bar at all before
 * Quit when the last window closes instead of leaving a windowless process behind
+* App icon drawn in code (mint blocks, hour rail, red now line on a dark plate) and set as the Dock tile at launch
+* `Scripts/make-app.sh` builds `dist/Day timeline.app` with an `AppIcon.icns` exported from the same drawing via `day-timeline --export-icon`
 
 ### 0.7.0: 2026-05-28
 

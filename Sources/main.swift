@@ -1362,6 +1362,105 @@ extension DayState {
     }
 }
 
+// MARK: - App icon
+
+/// The Dock icon, drawn in code so the runtime tile and the `.icns` baked by
+/// `Scripts/make-app.sh` come from one source of truth.
+enum AppIcon {
+    static func image(side: CGFloat) -> NSImage {
+        let pixels = Int(side)
+        guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil,
+                                         pixelsWide: pixels,
+                                         pixelsHigh: pixels,
+                                         bitsPerSample: 8,
+                                         samplesPerPixel: 4,
+                                         hasAlpha: true,
+                                         isPlanar: false,
+                                         colorSpaceName: .deviceRGB,
+                                         bytesPerRow: 0,
+                                         bitsPerPixel: 0),
+              let context = NSGraphicsContext(bitmapImageRep: rep) else {
+            return NSImage(size: NSSize(width: side, height: side))
+        }
+        rep.size = NSSize(width: side, height: side)
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = context
+        draw(side: side)
+        context.flushGraphics()
+        NSGraphicsContext.restoreGraphicsState()
+        let image = NSImage(size: NSSize(width: side, height: side))
+        image.addRepresentation(rep)
+        return image
+    }
+
+    /// Writes the PNG family `iconutil` expects in an `.iconset` directory.
+    static func exportIconset(to directory: URL) throws {
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        for size in [16, 32, 128, 256, 512] {
+            for scale in [1, 2] {
+                let name = scale == 1 ? "icon_\(size)x\(size).png" : "icon_\(size)x\(size)@2x.png"
+                guard let rep = image(side: CGFloat(size * scale)).representations.first as? NSBitmapImageRep,
+                      let data = rep.representation(using: .png, properties: [:]) else {
+                    throw CocoaError(.fileWriteUnknown)
+                }
+                try data.write(to: directory.appendingPathComponent(name))
+            }
+        }
+    }
+
+    /// A mini timeline on a dark plate: hour rail, three blocks, the red now line.
+    private static func draw(side: CGFloat) {
+        let unit = side / 1024
+        func p(_ value: CGFloat) -> CGFloat { value * unit }
+        // Design coordinates run top-down; AppKit's origin is bottom-left.
+        func box(_ x: CGFloat, _ y: CGFloat, _ w: CGFloat, _ h: CGFloat) -> NSRect {
+            NSRect(x: p(x), y: side - p(y + h), width: p(w), height: p(h))
+        }
+        func rounded(_ rect: NSRect, _ radius: CGFloat) -> NSBezierPath {
+            NSBezierPath(roundedRect: rect, xRadius: p(radius), yRadius: p(radius))
+        }
+
+        let plate = rounded(box(92, 92, 840, 840), 188)
+
+        NSGraphicsContext.saveGraphicsState()
+        let shadow = NSShadow()
+        shadow.shadowColor = NSColor.black.withAlphaComponent(0.35)
+        shadow.shadowOffset = NSSize(width: 0, height: -p(12))
+        shadow.shadowBlurRadius = p(28)
+        shadow.set()
+        NSColor.black.setFill()
+        plate.fill()
+        NSGraphicsContext.restoreGraphicsState()
+
+        let plateTop = NSColor(srgbRed: 0x2B/255.0, green: 0x2B/255.0, blue: 0x31/255.0, alpha: 1)
+        let plateBottom = NSColor(srgbRed: 0x0E/255.0, green: 0x0E/255.0, blue: 0x11/255.0, alpha: 1)
+        NSGradient(colors: [plateTop, plateBottom])?.draw(in: plate, angle: -90)
+
+        NSGraphicsContext.saveGraphicsState()
+        plate.addClip()
+
+        let mint = NSColor(srgbRed: 0x7E/255.0, green: 0xFF/255.0, blue: 0xE1/255.0, alpha: 1)
+
+        NSColor.white.withAlphaComponent(0.16).setFill()
+        rounded(box(242, 196, 8, 632), 4).fill()
+
+        mint.withAlphaComponent(0.95).setFill()
+        rounded(box(320, 196, 512, 168), 44).fill()
+
+        NSColor.white.withAlphaComponent(0.26).setFill()
+        rounded(box(320, 396, 512, 232), 44).fill()
+
+        mint.withAlphaComponent(0.45).setFill()
+        rounded(box(320, 660, 512, 168), 44).fill()
+
+        NSColor.systemRed.setFill()
+        rounded(box(214, 514, 652, 12), 6).fill()
+        NSBezierPath(ovalIn: box(216, 490, 60, 60)).fill()
+
+        NSGraphicsContext.restoreGraphicsState()
+    }
+}
+
 // MARK: - App + window
 
 class AppDelegate: NSObject, NSApplicationDelegate {
@@ -1371,6 +1470,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         registerBundledFonts()
+        NSApp.applicationIconImage = AppIcon.image(side: 512)
         installMainMenu()
         let view = DayTimelineView(state: state)
         let hosting = NSHostingView(rootView: view)
@@ -1456,6 +1556,21 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 }
 
 let app = NSApplication.shared
+
+// Headless hook for Scripts/make-app.sh: render the iconset, then exit.
+if let flagIndex = CommandLine.arguments.firstIndex(of: "--export-icon") {
+    let target = CommandLine.arguments.count > flagIndex + 1
+        ? CommandLine.arguments[flagIndex + 1]
+        : "AppIcon.iconset"
+    do {
+        try AppIcon.exportIconset(to: URL(fileURLWithPath: target))
+        exit(0)
+    } catch {
+        FileHandle.standardError.write(Data("Icon export failed: \(error)\n".utf8))
+        exit(1)
+    }
+}
+
 let delegate = AppDelegate()
 app.delegate = delegate
 app.setActivationPolicy(.regular)

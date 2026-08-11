@@ -11,6 +11,15 @@ swift build -c release
 
 Requires macOS 13+ and the Swift toolchain.
 
+## App bundle
+
+```bash
+Scripts/make-app.sh
+cp -R "dist/Day timeline.app" ~/Applications/
+```
+
+Builds `dist/Day timeline.app` with the icon rendered by the binary itself (`day-timeline --export-icon <dir>` writes the iconset, `iconutil` turns it into `AppIcon.icns`), so the art never drifts from the code that draws it.
+
 ## Features
 
 - Minimize, zoom and close in the title bar; menu bar with cmd+M, cmd+W, cmd+H, cmd+Q
