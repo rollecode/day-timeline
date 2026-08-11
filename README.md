@@ -13,6 +13,40 @@ swift build -c release
 
 Requires macOS 13+ and the Swift toolchain.
 
+## Configuration
+
+Out of the box the app looks for `~/Documents/Brain dump/claude-mcp-daily-plans/Plan D.M.YYYY.md`, which is the author's vault. Point it at yours with `defaults write`, no rebuild needed:
+
+```bash
+defaults write fi.dude.day-timeline planDirectory "~/Documents/Notes/Daily"
+defaults write fi.dude.day-timeline planFileNameFormat "yyyy-MM-dd'.md'"
+defaults write fi.dude.day-timeline obsidianVaultName "Notes"
+defaults write fi.dude.day-timeline timeZone "Europe/Lisbon"
+```
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `planDirectory` | `~/Documents/Brain dump/claude-mcp-daily-plans` | Folder holding the plan files. `~` is expanded. |
+| `planFileNameFormat` | `'Plan 'd.M.yyyy'.md'` | `DateFormatter` pattern for one day's file. Literal text needs single quotes. |
+| `obsidianVaultName` | `Brain dump` | Vault name used in `obsidian://open` links. The in-vault path is derived from `planDirectory`. |
+| `timeZone` | `Europe/Helsinki` | Zone every timestamp resolves in. Falls back to the system zone if unknown. |
+| `timelineStartHour` | `7` | First hour drawn. The timeline still expands to fit earlier blocks. |
+| `timelineEndHour` | `19` | Last hour drawn, expanding for later blocks. |
+
+Check what the app resolved, including whether today's file actually exists:
+
+```bash
+.build/release/day-timeline --print-config
+```
+
+Settings can also be overridden per launch without touching your preferences, which is handy for trying a vault out:
+
+```bash
+.build/release/day-timeline -planDirectory "~/Notes/Daily" -planFileNameFormat "yyyy-MM-dd'.md'"
+```
+
+Use the `fi.dude.day-timeline` domain for the installed `.app` and `day-timeline` for a binary run straight out of `.build`.
+
 ## App bundle
 
 ```yaml
@@ -24,7 +58,7 @@ Builds `dist/Day timeline.app` with the icon rendered by the binary itself (`day
 ## Features
 
 - Minimize, zoom and close in the title bar; menu bar with cmd+M, cmd+W, cmd+H, cmd+Q
-- Vertical timeline 09:00-19:00, expanding to fit blocks outside that range
+- Vertical timeline 07:00-19:00 by default, expanding to fit blocks outside that range
 - Click status circle to cycle planned → in progress → done → skipped, with completion timestamp appended automatically
 - Drag block body to move, drag top or bottom edge to resize, snapping to 15 min on release
 - Floating + button or cmd+N adds a new 30-min block at the next quarter hour

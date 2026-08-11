@@ -1,3 +1,11 @@
+### 0.10.0: 2026-08-11
+
+* Plan directory, file name pattern, vault name, timezone and timeline hours are all settings now, resolved from UserDefaults with the previous hardcoded values as defaults; nothing about the plan file location is baked into the binary
+* Derive the in-vault path for `obsidian://open` from the plan directory instead of a hardcoded folder name
+* `--print-config` prints every resolved setting and whether today's plan file exists, without opening a window
+* Settings can be overridden per launch (`-planDirectory ...`) without writing to preferences
+* Document all of it in the README, and correct the timeline range there from 09:00 to the actual 07:00 default
+
 ### 0.9.0: 2026-08-11
 
 * Remember the window size and position across launches; only the very first run centers a default-sized window

@@ -2,30 +2,80 @@ import SwiftUI
 import AppKit
 import CoreText
 
-// MARK: - Constants
+// MARK: - Settings
+//
+// Nothing here needs a rebuild to change. Every value falls back to the
+// author's own setup, and each one can be overridden with `defaults write`,
+// e.g. for an Obsidian vault whose daily notes are named 2026-08-11.md:
+//
+//   defaults write fi.dude.day-timeline planDirectory "~/Documents/Notes/Daily"
+//   defaults write fi.dude.day-timeline planFileNameFormat "yyyy-MM-dd'.md'"
+//   defaults write fi.dude.day-timeline obsidianVaultName "Notes"
+//
+// Use the fi.dude.day-timeline domain for the installed .app; the bare binary
+// built by `swift build` reads the day-timeline domain instead.
 
-let planDir = "\(NSHomeDirectory())/Documents/Brain dump/claude-mcp-daily-plans"
-let helsinkiTZ = TimeZone(identifier: "Europe/Helsinki")!
+enum Settings {
+    private static let store = UserDefaults.standard
 
-let dayStart = 7   // 07:00
-let dayEnd = 19    // 19:00
+    static func string(_ key: String, default fallback: String) -> String {
+        guard let value = store.string(forKey: key), !value.isEmpty else { return fallback }
+        return value
+    }
+
+    static func int(_ key: String, default fallback: Int) -> Int {
+        store.object(forKey: key) == nil ? fallback : store.integer(forKey: key)
+    }
+}
+
+/// Directory holding the plan files. `~` is expanded.
+let planDir = (Settings.string("planDirectory",
+                               default: "~/Documents/Brain dump/claude-mcp-daily-plans")
+    as NSString).expandingTildeInPath
+
+/// DateFormatter pattern for a day's file name. Literal text needs single quotes.
+let planFileNameFormat = Settings.string("planFileNameFormat", default: "'Plan 'd.M.yyyy'.md'")
+
+/// Vault name for the `obsidian://open` links.
+let obsidianVaultName = Settings.string("obsidianVaultName", default: "Brain dump")
+
+/// Timezone every timestamp is resolved in. Falls back to the system zone if
+/// the configured identifier is not one Foundation recognises.
+let planTimeZone = TimeZone(identifier: Settings.string("timeZone", default: "Europe/Helsinki"))
+    ?? .current
+
+let dayStart = Settings.int("timelineStartHour", default: 7)
+let dayEnd = Settings.int("timelineEndHour", default: 19)
 let basePixelsPerMinute: CGFloat = 1.2
 let zoomMin: Double = 0.5
 let zoomMax: Double = 4.0
 let snapMinutes = 15
-let obsidianVaultName = "Brain dump"
 let windowFrameAutosaveName = "DayTimelineWindow"
 
 // MARK: - Plan file path for a date
 
+func planFileName(for date: Date) -> String {
+    let formatter = DateFormatter()
+    // POSIX locale so the pattern means the same thing under every locale.
+    formatter.locale = Locale(identifier: "en_US_POSIX")
+    formatter.timeZone = planTimeZone
+    formatter.dateFormat = planFileNameFormat
+    return formatter.string(from: date)
+}
+
 func planFilePath(for date: Date) -> String {
-    var cal = Calendar(identifier: .gregorian)
-    cal.timeZone = helsinkiTZ
-    let comps = cal.dateComponents([.day, .month, .year], from: date)
-    let d = comps.day ?? 0
-    let m = comps.month ?? 0
-    let y = comps.year ?? 0
-    return "\(planDir)/Plan \(d).\(m).\(y).md"
+    "\(planDir)/\(planFileName(for: date))"
+}
+
+/// Path an `obsidian://open` link needs: everything below the vault directory.
+/// Derived from planDir so the vault can live anywhere, with the bare file name
+/// as the fallback when the vault name is not part of the path at all.
+func vaultRelativePlanPath(for date: Date) -> String {
+    let fileName = planFileName(for: date)
+    let components = planDir.split(separator: "/").map(String.init)
+    guard let vaultIndex = components.lastIndex(of: obsidianVaultName) else { return fileName }
+    let subdirectories = components[(vaultIndex + 1)...]
+    return (subdirectories + [fileName]).joined(separator: "/")
 }
 
 // MARK: - Block model
@@ -687,7 +737,7 @@ class DayState: ObservableObject {
     func loadToday() {
         date = Date()
         var cal = Calendar(identifier: .gregorian)
-        cal.timeZone = helsinkiTZ
+        cal.timeZone = planTimeZone
         let comps = cal.dateComponents([.day, .month, .year, .weekday], from: date)
         let dayNames = ["", "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
         let weekdayName = dayNames[comps.weekday ?? 1]
@@ -807,7 +857,7 @@ class DayState: ObservableObject {
 
     private func updateNow() {
         var cal = Calendar(identifier: .gregorian)
-        cal.timeZone = helsinkiTZ
+        cal.timeZone = planTimeZone
         let comps = cal.dateComponents([.hour, .minute, .second], from: Date())
         nowMinute = (comps.hour ?? 0) * 60 + (comps.minute ?? 0)
         nowSecond = comps.second ?? 0
@@ -1304,9 +1354,7 @@ struct BlockRow: View {
     }
 
     private func openInObsidian() {
-        let path = planFilePath(for: state.date)
-        let fileName = (path as NSString).lastPathComponent
-        let relPath = "claude-mcp-daily-plans/\(fileName)"
+        let relPath = vaultRelativePlanPath(for: state.date)
         guard let encodedVault = obsidianVaultName.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
               let encodedFile = relPath.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else {
             return
@@ -1578,6 +1626,25 @@ if let flagIndex = CommandLine.arguments.firstIndex(of: "--export-icon") {
         FileHandle.standardError.write(Data("Icon export failed: \(error)\n".utf8))
         exit(1)
     }
+}
+
+// Print the resolved settings and exit, so a misconfigured path can be checked
+// without opening a window.
+if CommandLine.arguments.contains("--print-config") {
+    let planPath = planFilePath(for: Date())
+    let exists = FileManager.default.fileExists(atPath: planPath) ? "found" : "missing"
+    print("""
+    domain             \(Bundle.main.bundleIdentifier ?? "day-timeline")
+    planDirectory      \(planDir)
+    planFileNameFormat \(planFileNameFormat)
+    obsidianVaultName  \(obsidianVaultName)
+    timeZone           \(planTimeZone.identifier)
+    timelineStartHour  \(dayStart)
+    timelineEndHour    \(dayEnd)
+    today's plan file  \(planPath) (\(exists))
+    obsidian link      obsidian://open?vault=\(obsidianVaultName)&file=\(vaultRelativePlanPath(for: Date()))
+    """)
+    exit(0)
 }
 
 let delegate = AppDelegate()

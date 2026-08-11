@@ -4,7 +4,7 @@ This is the day-timeline app, a sibling to focus-timer. SwiftUI single-file menu
 
 ## Source of truth
 
-The plan file at `~/Documents/Brain dump/claude-mcp-daily-plans/Plan D.M.YYYY.md` is canonical. The app may only modify the `## Day Planner` section; every other section in the file (Analysis, Backlog, Stale, Security, Emails, Support, Footnote, etc.) must be preserved byte-for-byte on save. The Obsidian Day Planner plugin reads the same file, and `/plan_today` writes to it - the three editors agree on the format and never reformat each other's sections.
+The plan file is canonical. Its location defaults to `~/Documents/Brain dump/claude-mcp-daily-plans/Plan D.M.YYYY.md` and is resolved through the `Settings` enum at the top of `Sources/main.swift`, so never hardcode a path anywhere else; see the Configuration section in `README.md` for the keys. The app may only modify the `## Day Planner` section; every other section in the file (Analysis, Backlog, Stale, Security, Emails, Support, Footnote, etc.) must be preserved byte-for-byte on save. The Obsidian Day Planner plugin reads the same file, and `/plan_today` writes to it - the three editors agree on the format and never reformat each other's sections.
 
 ## Concurrency
 
