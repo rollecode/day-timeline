@@ -1,6 +1,7 @@
 ### 0.9.0: 2026-08-11
 
 * Remember the window size and position across launches; only the very first run centers a default-sized window
+* `Scripts/make-app.sh --install` puts the bundle in `~/Applications` and clears `dist`, so Launchpad stops listing the build copy next to the installed one
 
 ### 0.8.0: 2026-08-11
 

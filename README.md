@@ -14,11 +14,10 @@ Requires macOS 13+ and the Swift toolchain.
 ## App bundle
 
 ```bash
-Scripts/make-app.sh
-cp -R "dist/Day timeline.app" ~/Applications/
+Scripts/make-app.sh --install
 ```
 
-Builds `dist/Day timeline.app` with the icon rendered by the binary itself (`day-timeline --export-icon <dir>` writes the iconset, `iconutil` turns it into `AppIcon.icns`), so the art never drifts from the code that draws it.
+Builds `dist/Day timeline.app` with the icon rendered by the binary itself (`day-timeline --export-icon <dir>` writes the iconset, `iconutil` turns it into `AppIcon.icns`), so the art never drifts from the code that draws it. `--install` moves it to `~/Applications`, replacing any running copy, and clears `dist` so Launchpad does not list the build copy too. Without the flag the bundle is left in `dist` for you to place yourself.
 
 ## Features
 

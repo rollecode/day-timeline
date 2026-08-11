@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Builds dist/Day timeline.app: release binary, resource bundle, and an
 # AppIcon.icns rendered by the binary itself so code and icon never drift.
+# Pass --install to move it to ~/Applications and clear dist afterwards, which
+# keeps Launchpad from listing the build copy alongside the installed one.
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -55,5 +57,22 @@ PLIST
 codesign --force --deep --sign - "$app" >/dev/null 2>&1 || true
 touch "$app"
 
-echo "Built $app"
-echo "Install with: cp -R \"$app\" ~/Applications/"
+if [ "${1:-}" != "--install" ]; then
+    echo "Built $app"
+    echo "Install with: $0 --install"
+    exit 0
+fi
+
+lsregister="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
+installed="$HOME/Applications/Day timeline.app"
+
+pkill -f "$installed/Contents/MacOS/day-timeline" 2>/dev/null || true
+rm -rf "$installed"
+mkdir -p "$HOME/Applications"
+cp -R "$app" "$installed"
+
+# Drop the build copy so Launchpad only ever sees the installed one.
+"$lsregister" -u "$app" 2>/dev/null || true
+rm -rf "$dist"
+
+echo "Installed $installed"
