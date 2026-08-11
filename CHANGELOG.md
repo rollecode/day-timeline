@@ -1,3 +1,7 @@
+### 0.9.0: 2026-08-11
+
+* Remember the window size and position across launches; only the very first run centers a default-sized window
+
 ### 0.8.0: 2026-08-11
 
 * Minimize button in the title bar, plus a menu bar with Minimize (cmd+M), Zoom, Close (cmd+W), Hide (cmd+H) and Quit (cmd+Q) - the app had no menu bar at all before

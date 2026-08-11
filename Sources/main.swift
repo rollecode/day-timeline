@@ -14,6 +14,7 @@ let zoomMin: Double = 0.5
 let zoomMax: Double = 4.0
 let snapMinutes = 15
 let obsidianVaultName = "Brain dump"
+let windowFrameAutosaveName = "DayTimelineWindow"
 
 // MARK: - Plan file path for a date
 
@@ -1484,7 +1485,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         window.contentView = hosting
         window.level = .floating
         window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-        window.center()
+        // Remember where and how big the window was; center only on first run.
+        window.setFrameAutosaveName(windowFrameAutosaveName)
+        if !window.setFrameUsingName(windowFrameAutosaveName) {
+            window.center()
+        }
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         installScrollMonitor()
@@ -1492,6 +1497,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         true
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        window?.saveFrame(usingName: windowFrameAutosaveName)
     }
 
     /// Minimal menu bar: the app had none, so cmd+M, cmd+W and cmd+Q did nothing.
