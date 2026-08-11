@@ -1,3 +1,8 @@
+### 0.8.0: 2026-08-11
+
+* Minimize button in the title bar, plus a menu bar with Minimize (cmd+M), Zoom, Close (cmd+W), Hide (cmd+H) and Quit (cmd+Q) - the app had no menu bar at all before
+* Quit when the last window closes instead of leaving a windowless process behind
+
 ### 0.7.0: 2026-05-28
 
 * Keep-now-centered toggle next to the + button (default on, persisted): re-centers the timeline on the red now pin every minute and when re-enabled

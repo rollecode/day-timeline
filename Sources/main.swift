@@ -1371,11 +1371,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         registerBundledFonts()
+        installMainMenu()
         let view = DayTimelineView(state: state)
         let hosting = NSHostingView(rootView: view)
         window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 380, height: 720),
-            styleMask: [.titled, .closable, .resizable],
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
             defer: false
         )
@@ -1387,6 +1388,48 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         installScrollMonitor()
+    }
+
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        true
+    }
+
+    /// Minimal menu bar: the app had none, so cmd+M, cmd+W and cmd+Q did nothing.
+    private func installMainMenu() {
+        let mainMenu = NSMenu()
+
+        let appItem = NSMenuItem()
+        let appMenu = NSMenu()
+        appMenu.addItem(withTitle: "Hide Day timeline",
+                        action: #selector(NSApplication.hide(_:)),
+                        keyEquivalent: "h")
+        appMenu.addItem(withTitle: "Hide others",
+                        action: #selector(NSApplication.hideOtherApplications(_:)),
+                        keyEquivalent: "h").keyEquivalentModifierMask = [.command, .option]
+        appMenu.addItem(NSMenuItem.separator())
+        appMenu.addItem(withTitle: "Quit Day timeline",
+                        action: #selector(NSApplication.terminate(_:)),
+                        keyEquivalent: "q")
+        appItem.submenu = appMenu
+        mainMenu.addItem(appItem)
+
+        let windowItem = NSMenuItem()
+        let windowMenu = NSMenu(title: "Window")
+        windowMenu.addItem(withTitle: "Minimize",
+                           action: #selector(NSWindow.performMiniaturize(_:)),
+                           keyEquivalent: "m")
+        windowMenu.addItem(withTitle: "Zoom",
+                           action: #selector(NSWindow.performZoom(_:)),
+                           keyEquivalent: "")
+        windowMenu.addItem(NSMenuItem.separator())
+        windowMenu.addItem(withTitle: "Close",
+                           action: #selector(NSWindow.performClose(_:)),
+                           keyEquivalent: "w")
+        windowItem.submenu = windowMenu
+        mainMenu.addItem(windowItem)
+
+        NSApp.mainMenu = mainMenu
+        NSApp.windowsMenu = windowMenu
     }
 
     private func registerBundledFonts() {
