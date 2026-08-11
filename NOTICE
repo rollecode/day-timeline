@@ -1,0 +1,12 @@
+Third-party components bundled with this software.
+
+Instrument Serif (Sources/Resources/Fonts)
+Copyright 2022 The Instrument Serif Project Authors
+https://github.com/Instrument/instrument-serif
+Licensed under the SIL Open Font License 1.1, full text in
+Sources/Resources/Fonts/OFL.txt.
+
+Brand glyphs rendered as SVG paths in Sources/main.swift come from
+simple-icons (https://github.com/simple-icons/simple-icons), released
+under CC0 1.0 Universal. The trademarks they depict remain the property
+of their respective owners.
