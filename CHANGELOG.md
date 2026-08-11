@@ -1,5 +1,6 @@
-### 0.10.0: 2026-08-11
+### 1.0.0: 2026-08-11
 
+* First stable release: MIT licensed, public, and no longer tied to one person's vault
 * Plan directory, file name pattern, vault name, timezone and timeline hours are all settings now, resolved from UserDefaults with the previous hardcoded values as defaults; nothing about the plan file location is baked into the binary
 * Derive the in-vault path for `obsidian://open` from the plan directory instead of a hardcoded folder name
 * `--print-config` prints every resolved setting and whether today's plan file exists, without opening a window
