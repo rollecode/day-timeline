@@ -2,6 +2,8 @@
 
 Sunsama-style vertical day timeline for macOS. Reads, renders, and writes back the same Obsidian Day Planner markdown file Obsidian itself uses, so the file stays the single source of truth.
 
+<img width="1197" height="1152" alt="image" src="https://github.com/user-attachments/assets/7351321e-cf8d-43f4-9d72-c9e73895f9f0" />
+
 ## Build
 
 ```cmake
