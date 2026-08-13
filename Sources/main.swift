@@ -680,9 +680,12 @@ class DayState: ObservableObject {
         guard let attrs = try? FileManager.default.attributesOfItem(atPath: path),
               let mtime = attrs[.modificationDate] as? Date else { return }
         if let last = lastMtime, mtime == last { return }
-        lastMtime = mtime
-        // Debounce against our own writes
+        // Debounce against our own writes. Bail BEFORE recording the mtime:
+        // recording it first marks the change as seen, so an external edit that
+        // lands mid-save is skipped here and then looks unchanged on every later
+        // poll. The edit is lost until something else touches the file.
         if savingNow { return }
+        lastMtime = mtime
         loadFromDisk()
     }
 
