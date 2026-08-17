@@ -33,4 +33,16 @@ The plan file is canonical. Its location defaults to `~/Documents/Brain dump/cla
 
 ## Testing
 
-Test builds with `swift build -c release` before committing. Run the binary briefly to confirm no startup crashes.
+Test builds with `swift build -c release` before committing. Verify behaviour headlessly with `--print-config` rather than opening the window; launching the app puts a floating window on top of whatever Rolle is doing.
+
+## Shipping
+
+Every change ends installed and ready to use, not just committed:
+
+1. `swift build -c release`
+2. Changelog entry, commit, push
+3. `gh release create vX.Y.Z`
+4. `Scripts/make-app.sh --install` so `~/Applications/Day timeline.app` is the version just released
+5. Log it in the life changelog at `~/Documents/Brain dump/CHANGELOG.md` under today's entry, as `* Release [day-timeline](https://github.com/rollecode/day-timeline) X.Y.Z`
+
+Relaunch the app afterwards only if it was running before the install; the script kills the running copy to replace it.
