@@ -65,6 +65,7 @@ Builds `dist/Day timeline.app` with the icon rendered by the binary itself (`day
 - Cmd+scroll, cmd+-, cmd+=, cmd+0, or the bottom-right magnifier for zoom; level persists across launches
 - Right-click for status, rename, delete, open in Obsidian
 - Inline markdown rendering for Linear links and similar
+- Id comments such as `<!-- cal:... lin:UP-832 -->` stay in the file but never show on a block, and survive a rename
 - FSEvents file watch with a 2 s mtime poll fallback keeps the view in sync with Obsidian and `/plan_today` edits
 - Atomic save touches only the `## Day Planner` section, every other section preserved byte-for-byte
 

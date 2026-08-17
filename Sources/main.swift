@@ -107,12 +107,37 @@ enum BlockStatus: String {
     }
 }
 
+/// Markdown comments the planner writes onto a block line to carry ids, e.g.
+/// `<!-- cal:tvt2cba3s3k2k1c4amjpph9jg6_20260814T124500Z lin:UP-832 -->`.
+/// They stay in the file byte-for-byte and never reach the screen: rendering,
+/// meeting detection and service icons all run on the visible title, so an id
+/// that happens to contain "demo" or "UP-832" cannot mislabel a block.
+let metadataCommentPattern = #"<!--.*?-->"#
+
+func strippingMetadataComments(_ text: String) -> String {
+    text.replacingOccurrences(of: metadataCommentPattern, with: "", options: .regularExpression)
+        .replacingOccurrences(of: #" {2,}"#, with: " ", options: .regularExpression)
+        .trimmingCharacters(in: .whitespaces)
+}
+
+/// The comments themselves, in order, so a rename can put them back.
+func metadataComments(in text: String) -> String {
+    guard let regex = try? NSRegularExpression(pattern: metadataCommentPattern) else { return "" }
+    let range = NSRange(text.startIndex..<text.endIndex, in: text)
+    return regex.matches(in: text, range: range)
+        .compactMap { Range($0.range, in: text).map { String(text[$0]) } }
+        .joined(separator: " ")
+}
+
 struct Block: Identifiable, Equatable {
     let id = UUID()
     var status: BlockStatus
     var startMin: Int   // minutes since midnight
     var endMin: Int
     var title: String   // freeform text after time range, including (Source)
+
+    /// What the timeline shows: the title without its metadata comments.
+    var visibleTitle: String { strippingMetadataComments(title) }
 
     var durationMin: Int { endMin - startMin }
 
@@ -1200,7 +1225,7 @@ struct BlockRow: View {
             Button("Mark skipped") { state.setStatus(block, .skipped) }
             Divider()
             Button("Rename") {
-                renamingText = state.titleWithoutDoneTag(block.title)
+                renamingText = strippingMetadataComments(state.titleWithoutDoneTag(block.title))
                 renamingBlockId = block.id
             }
             Button("Delete", role: .destructive) {
@@ -1209,7 +1234,7 @@ struct BlockRow: View {
         }
     }
 
-    private var decor: BlockDecor { BlockDecor.compute(for: block.title) }
+    private var decor: BlockDecor { BlockDecor.compute(for: block.visibleTitle) }
 
     private var fillColor: Color {
         let faded = block.status == .done || block.status == .skipped
@@ -1307,16 +1332,10 @@ struct BlockRow: View {
                 .frame(width: 18, height: 18)
                 .padding(.leading, 6)
 
-            TextField("Task", text: $renamingText, onCommit: {
-                state.updateTitle(block, newTitle: renamingText)
-                renamingBlockId = nil
-            })
+            TextField("Task", text: $renamingText, onCommit: commitRename)
             .textFieldStyle(.plain)
             .font(.system(size: 12))
-            .onSubmit {
-                state.updateTitle(block, newTitle: renamingText)
-                renamingBlockId = nil
-            }
+            .onSubmit(commitRename)
             .onExitCommand {
                 renamingBlockId = nil
             }
@@ -1324,6 +1343,16 @@ struct BlockRow: View {
             Spacer()
         }
         .frame(height: height, alignment: .top)
+    }
+
+    /// The field only ever holds visible text, so the block's metadata comments
+    /// are appended back before the title is written to the file.
+    private func commitRename() {
+        let metadata = metadataComments(in: block.title)
+        let edited = renamingText.trimmingCharacters(in: .whitespaces)
+        let newTitle = metadata.isEmpty ? edited : "\(edited) \(metadata)"
+        state.updateTitle(block, newTitle: newTitle)
+        renamingBlockId = nil
     }
 
     @ViewBuilder
@@ -1397,9 +1426,10 @@ struct BlockRow: View {
         let timePrefix = String(format: "%02d:%02d-%02d:%02d  ", h1, m1, h2, m2)
         var prefixAttr = AttributedString(timePrefix)
         prefixAttr.foregroundColor = NSColor.secondaryLabelColor
-        let titleAttr = (try? AttributedString(markdown: block.title,
+        let visible = block.visibleTitle
+        let titleAttr = (try? AttributedString(markdown: visible,
             options: AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnlyPreservingWhitespace)))
-            ?? AttributedString(block.title)
+            ?? AttributedString(visible)
         return prefixAttr + titleAttr
     }
 }

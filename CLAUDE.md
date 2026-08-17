@@ -6,6 +6,8 @@ This is the day-timeline app, a sibling to focus-timer. SwiftUI single-file menu
 
 The plan file is canonical. Its location defaults to `~/Documents/Brain dump/claude-mcp-daily-plans/Plan D.M.YYYY.md` and is resolved through the `Settings` enum at the top of `Sources/main.swift`, so never hardcode a path anywhere else; see the Configuration section in `README.md` for the keys. The app may only modify the `## Day Planner` section; every other section in the file (Analysis, Backlog, Stale, Security, Emails, Support, Footnote, etc.) must be preserved byte-for-byte on save. The Obsidian Day Planner plugin reads the same file, and `/plan_today` writes to it - the three editors agree on the format and never reformat each other's sections.
 
+`/plan_today` tags block lines with markdown comments carrying ids, e.g. `<!-- cal:tvt2cba3s3k2k1c4amjpph9jg6_20260814T124500Z lin:UP-832 -->`. They are part of the title and round-trip through saves untouched, including through a rename. Nothing user-facing may render them: display, meeting detection and service icons all run on `Block.visibleTitle`, never on `title`.
+
 ## Concurrency
 
 - FSEvents watches the plan file's own fd, not its parent directory; the parent's mtime does not change on content edits

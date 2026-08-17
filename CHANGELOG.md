@@ -1,3 +1,10 @@
+### 1.0.1: 2026-08-17
+
+* Hide `<!-- cal: -->` id comments from blocks
+* Detect meetings and icons from visible text
+* Keep ids intact through a rename
+* Skip mtime recording during an in-flight save
+
 ### 1.0.0: 2026-08-11
 
 * First stable release: MIT licensed, public, and no longer tied to one person's vault
