@@ -929,6 +929,7 @@ class DayState: ObservableObject {
     /// non-slot blocks are considered, which makes this idempotent and leaves
     /// hand-made slots and renamed auto slots alone.
     func autoGroupOverlaps() {
+        absorbIntoExistingSlots()
         let loose = blocks.enumerated()
             .filter { $0.element.slotDef == nil && $0.element.slot == nil }
             .sorted { $0.element.startMin < $1.element.startMin }
@@ -968,7 +969,29 @@ class DayState: ObservableObject {
         if created { scheduleSave() }
     }
 
-    /// "3 tasks", or "3 tasks (10:00)" when a slot by that name already exists.
+    /// A block sitting inside an existing slot's span belongs to that slot. Without
+    /// this, auto-grouping built a second slot over the same hour and the two
+    /// containers overlapped each other, which looked far worse than the original
+    /// stacked blocks.
+    private func absorbIntoExistingSlots() {
+        let slotRanges: [(String, Int, Int)] = blocks.compactMap {
+            guard let name = $0.slotDef else { return nil }
+            return (name, $0.startMin, $0.endMin)
+        }
+        guard !slotRanges.isEmpty else { return }
+        var changed = false
+        for idx in blocks.indices {
+            guard blocks[idx].slotDef == nil, blocks[idx].slot == nil else { continue }
+            let s = blocks[idx].startMin, e = blocks[idx].endMin
+            if let hit = slotRanges.first(where: { s < $0.2 && e > $0.1 }) {
+                blocks[idx].title += " <!-- slot:\(hit.0) -->"
+                changed = true
+            }
+        }
+        if changed { scheduleSave() }
+    }
+
+    /// "3 tasks", or "3 tasks 2" when a slot by that name already exists.
     private func uniqueAutoSlotName(count: Int) -> String {
         let base = "\(count) tasks"
         let taken = Set(blocks.compactMap { $0.slotDef })
@@ -1129,6 +1152,11 @@ struct DayTimelineView: View {
                     ScrollView {
                         ZStack(alignment: .topLeading) {
                             hourGrid
+                            // Behind the blocks: a click that hits nothing clears
+                            // selection and any in-flight rename.
+                            Color.clear
+                                .contentShape(Rectangle())
+                                .onTapGesture { clearInteraction() }
                             blocksLayer
                             nowIndicator
                             nowAnchor
@@ -1166,6 +1194,7 @@ struct DayTimelineView: View {
                 .padding(12)
         }
         .background(Color(NSColor.windowBackgroundColor))
+        .onExitCommand { clearInteraction() }
     }
 
     private var addBlockButton: some View {
@@ -1299,23 +1328,86 @@ struct DayTimelineView: View {
         }
     }
 
-    private var blocksLayer: some View {
-        ZStack(alignment: .topLeading) {
-            ForEach(slotDefs) { slot in
-                SlotRow(
-                    block: slot,
-                    memberCount: state.members(ofSlot: slot.slotDef ?? "").count,
-                    isExpanded: state.openSlotName == slot.slotDef,
-                    state: state,
-                    dayStartMin: dayStartMin,
-                    onToggle: { toggleSlot(slot.slotDef ?? "") }
-                )
+    /// Anything that still overlaps after auto-grouping is laid out side by side
+    /// rather than stacked, the way a calendar does it. Stacking made the text of
+    /// both blocks unreadable, which is the bug this exists to prevent.
+    private func columnLayout(for items: [Block]) -> [UUID: (index: Int, total: Int)] {
+        var result: [UUID: (Int, Int)] = [:]
+        let sorted = items.sorted { $0.startMin < $1.startMin }
+        var cluster: [Block] = []
+        var clusterEnd = Int.min
+
+        func flush() {
+            guard !cluster.isEmpty else { return }
+            var columnEnds: [Int] = []
+            var assigned: [(Block, Int)] = []
+            for block in cluster {
+                if let free = columnEnds.firstIndex(where: { $0 <= block.startMin }) {
+                    columnEnds[free] = block.endMin
+                    assigned.append((block, free))
+                } else {
+                    columnEnds.append(block.endMin)
+                    assigned.append((block, columnEnds.count - 1))
+                }
             }
-            ForEach(looseBlocks) { block in
-                blockView(block)
+            let total = max(1, columnEnds.count)
+            for (block, col) in assigned { result[block.id] = (col, total) }
+            cluster = []
+            clusterEnd = Int.min
+        }
+
+        for block in sorted {
+            if block.startMin < clusterEnd {
+                cluster.append(block)
+                clusterEnd = max(clusterEnd, block.endMin)
+            } else {
+                flush()
+                cluster = [block]
+                clusterEnd = block.endMin
             }
         }
+        flush()
+        return result
+    }
+
+    private var blocksLayer: some View {
+        let slots = slotDefs
+        let loose = looseBlocks
+        let slotCols = columnLayout(for: slots)
+        let looseCols = columnLayout(for: loose)
+        return GeometryReader { geo in
+            let width = max(80, geo.size.width)
+            ZStack(alignment: .topLeading) {
+                ForEach(slots) { slot in
+                    let c = slotCols[slot.id] ?? (0, 1)
+                    SlotRow(
+                        block: slot,
+                        memberCount: state.members(ofSlot: slot.slotDef ?? "").count,
+                        isExpanded: state.openSlotName == slot.slotDef,
+                        state: state,
+                        dayStartMin: dayStartMin,
+                        onToggle: { toggleSlot(slot.slotDef ?? "") }
+                    )
+                    .frame(width: width / CGFloat(c.total))
+                    .offset(x: width / CGFloat(c.total) * CGFloat(c.index))
+                }
+                ForEach(loose) { block in
+                    let c = looseCols[block.id] ?? (0, 1)
+                    blockView(block)
+                        .frame(width: width / CGFloat(c.total))
+                        .offset(x: width / CGFloat(c.total) * CGFloat(c.index))
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        }
         .padding(.leading, 56) // leave hour-label gutter
+    }
+
+    /// Esc and clicks on empty space both land here.
+    private func clearInteraction() {
+        renamingBlockId = nil
+        renamingText = ""
+        state.selectedBlockId = nil
     }
 
     private func toggleSlot(_ name: String) {
@@ -1389,6 +1481,7 @@ struct BlockRow: View {
     @GestureState private var topResizeDelta: CGFloat = 0
     @GestureState private var bottomResizeDelta: CGFloat = 0
     @State private var isHovered: Bool = false
+    @FocusState private var fieldFocused: Bool
 
     private var pxPerMin: CGFloat { pxPerMinOverride ?? state.pixelsPerMinute }
 
@@ -1501,6 +1594,9 @@ struct BlockRow: View {
             blockLabelView()
                 .font(.system(size: 13))
                 .foregroundColor(textColor(for: block.status))
+                .multilineTextAlignment(.leading)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
             Spacer(minLength: 6)
             serviceIcon
         }
@@ -1560,13 +1656,21 @@ struct BlockRow: View {
                 .frame(width: 18, height: 18)
                 .padding(.leading, 6)
 
-            TextField("Task", text: $renamingText, onCommit: commitRename)
+            TextField("Task", text: $renamingText)
             .textFieldStyle(.plain)
             .font(.system(size: 13))
+            .foregroundColor(Color(NSColor.textColor))
+            .focused($fieldFocused)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 3)
+            .background(
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(Color(NSColor.textBackgroundColor))
+                    .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.accentColor, lineWidth: 1.5))
+            )
             .onSubmit(commitRename)
-            .onExitCommand {
-                renamingBlockId = nil
-            }
+            .onExitCommand { cancelRename() }
+            .onAppear { fieldFocused = true }
 
             Spacer()
         }
@@ -1579,6 +1683,12 @@ struct BlockRow: View {
         state.selectedBlockId = block.id
         renamingText = strippingMetadataComments(state.titleWithoutDoneTag(block.title))
         renamingBlockId = block.id
+    }
+
+    private func cancelRename() {
+        renamingBlockId = nil
+        renamingText = ""
+        fieldFocused = false
     }
 
     private func commitRename() {
@@ -1833,6 +1943,7 @@ struct SlotDetailView: View {
     @State private var renamingText: String = ""
     @State private var editingTitle: Bool = false
     @State private var titleDraft: String = ""
+    @FocusState private var titleFocused: Bool
 
     private var slot: Block? { state.slotBlock(named: slotName) }
     private var memberBlocks: [Block] { state.members(ofSlot: slotName) }
@@ -1876,6 +1987,9 @@ struct SlotDetailView: View {
             }
         }
         .background(slotFillColor)
+        .onExitCommand {
+            if editingTitle { cancelTitle() } else { state.openSlotName = nil }
+        }
     }
 
     private var header: some View {
@@ -1887,12 +2001,21 @@ struct SlotDetailView: View {
                 .background(RoundedRectangle(cornerRadius: 4).fill(slotTextColor.opacity(0.92)))
             VStack(alignment: .leading, spacing: 1) {
                 if editingTitle {
-                    TextField("Slot name", text: $titleDraft, onCommit: commitTitle)
+                    TextField("Slot name", text: $titleDraft)
                         .textFieldStyle(.plain)
                         .font(.system(size: 14, weight: .semibold))
-                        .foregroundColor(slotTextColor)
+                        .foregroundColor(Color(NSColor.textColor))
+                        .focused($titleFocused)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 3)
+                        .background(
+                            RoundedRectangle(cornerRadius: 4)
+                                .fill(Color(NSColor.textBackgroundColor))
+                                .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.accentColor, lineWidth: 1.5))
+                        )
                         .onSubmit(commitTitle)
-                        .onExitCommand { editingTitle = false }
+                        .onExitCommand { cancelTitle() }
+                        .onAppear { titleFocused = true }
                 } else {
                     // One click to rename: an auto-named slot is called "3 tasks"
                     // and wants a real name as soon as it is opened.
@@ -1969,6 +2092,13 @@ struct SlotDetailView: View {
     private func commitTitle() {
         state.renameSlot(from: slotName, to: titleDraft)
         editingTitle = false
+        titleFocused = false
+    }
+
+    private func cancelTitle() {
+        editingTitle = false
+        titleDraft = ""
+        titleFocused = false
     }
 
     private func timeStr(_ min: Int) -> String {

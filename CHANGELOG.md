@@ -1,3 +1,12 @@
+### 1.3.1: 2026-08-18
+
+* Cancel edits and selection with Escape
+* Clear selection by clicking empty timeline
+* Give rename fields real input chrome and focus
+* Wrap long block titles instead of overflowing
+* Lay residual overlaps out side by side
+* Absorb loose blocks into the slot they sit in
+
 ### 1.3.0: 2026-08-18
 
 * Fold overlapping blocks into a slot automatically
