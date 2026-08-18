@@ -1,3 +1,11 @@
+### 1.3.5: 2026-08-18
+
+* Bring the timeline back to the slot popup
+* Cascade overlapping blocks instead of stacking them
+* Say when blocks were moved to clear a conflict
+* Stop selection running to the bottom of the day
+* Drop the duplicate checkbox while renaming
+
 ### 1.3.4: 2026-08-18
 
 * Show slot contents as a list, not a timeline

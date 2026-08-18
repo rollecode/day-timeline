@@ -1038,6 +1038,43 @@ class DayState: ObservableObject {
         return "\(base) \(n)"
     }
 
+    /// Sequences a slot's members so none overlap. Order and durations are kept;
+    /// a block that would start before the previous one ends is pushed down to
+    /// meet it. The slot grows if the cascade runs past its end.
+    /// Returns how many blocks moved, so the popup can say it happened rather
+    /// than silently rewriting the plan.
+    @discardableResult
+    func cascadeOverlaps(inSlot name: String) -> Int {
+        let ordered = blocks.enumerated()
+            .filter { $0.element.slot == name && $0.element.slotDef == nil }
+            .sorted {
+                $0.element.startMin != $1.element.startMin
+                    ? $0.element.startMin < $1.element.startMin
+                    : $0.element.endMin < $1.element.endMin
+            }
+        guard ordered.count > 1 else { return 0 }
+
+        var moved = 0
+        var cursor = ordered[0].element.endMin
+        for entry in ordered.dropFirst() {
+            let idx = entry.offset
+            if blocks[idx].startMin < cursor {
+                let duration = max(snapMinutes, blocks[idx].endMin - blocks[idx].startMin)
+                blocks[idx].startMin = cursor
+                blocks[idx].endMin = cursor + duration
+                moved += 1
+            }
+            cursor = max(cursor, blocks[idx].endMin)
+        }
+        if moved > 0 {
+            if let sIdx = blocks.firstIndex(where: { $0.slotDef == name }), blocks[sIdx].endMin < cursor {
+                blocks[sIdx].endMin = cursor
+            }
+            scheduleSave()
+        }
+        return moved
+    }
+
     /// Renaming a slot has to move its members too, or they orphan.
     func renameSlot(from old: String, to new: String) {
         let trimmed = new.trimmingCharacters(in: .whitespaces)
@@ -1530,8 +1567,7 @@ struct BlockRow: View {
                 .frame(maxWidth: .infinity, alignment: .bottomLeading)
                 .offset(y: max(0, height - 6))
         }
-        .frame(height: isRenaming ? nil : height, alignment: .top)
-        .frame(minHeight: height, alignment: .top)
+        .frame(height: height, alignment: .top)
         .modifier(ConditionalClip(active: !isRenaming))
         .frame(maxWidth: .infinity, alignment: .leading)
         .offset(x: 0, y: topOffset)
@@ -1657,12 +1693,11 @@ struct BlockRow: View {
     }
 
     private var renameField: some View {
-        HStack(spacing: 8) {
-            Text(checkboxGlyph(block.status))
-                .font(.system(size: 13, weight: .bold))
-                .foregroundColor(block.status.color)
-                .frame(width: 18, height: 18)
-                .padding(.leading, 6)
+        // No status glyph here: statusButton is overlaid on top of this view by the
+        // body, so drawing one produced two checkboxes side by side. The spacer
+        // reserves the same gutter titleArea uses, so the text does not jump.
+        HStack(alignment: .top, spacing: 8) {
+            Spacer().frame(width: 24)
 
             TextField("Task", text: $renamingText, axis: .vertical)
             .lineLimit(1...6)
@@ -1681,7 +1716,10 @@ struct BlockRow: View {
             .onSubmit(commitRename)
             .onAppear { fieldFocused = true }
         }
-        .padding(.trailing, 8)
+        .padding(.top, 4)
+        .padding(.leading, 8)
+        .padding(.trailing, 10)
+        .padding(.bottom, 6)
         .frame(maxWidth: .infinity, alignment: .topLeading)
     }
 
@@ -1976,6 +2014,7 @@ struct SlotDetailView: View {
     @State private var editingTitle: Bool = false
     @State private var titleDraft: String = ""
     @FocusState private var titleFocused: Bool
+    @State private var cascadedCount: Int = 0
 
     private var slot: Block? { state.slotBlock(named: slotName) }
     private var memberBlocks: [Block] { state.members(ofSlot: slotName) }
@@ -1988,32 +2027,82 @@ struct SlotDetailView: View {
         VStack(spacing: 0) {
             header
             Divider().overlay(slotTextColor.opacity(0.12))
+            if cascadedCount > 0 { cascadeNotice }
             if memberBlocks.isEmpty {
                 emptyState
             } else {
-                // A list, not a mini-timeline. Absolute positioning drew overlapping
-                // members on top of each other and the text became unreadable; inside
-                // a popup meant for reading and reorganising, order matters and exact
-                // vertical scale does not.
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 6) {
+                // Back to a real timeline: drag, resize, rename and the Obsidian
+                // deep link all live on BlockRow and were lost in the list version.
+                // Overlap is prevented by cascading on open rather than by changing
+                // how blocks are drawn.
+                GeometryReader { geo in
+                    let usable = max(60, geo.size.height - 24)
+                    let scale = usable / CGFloat(spanMin)
+                    ZStack(alignment: .topLeading) {
+                        grid(scale: scale)
                         ForEach(memberBlocks) { block in
-                            SlotMemberRow(
+                            BlockRow(
                                 block: block,
                                 state: state,
+                                dayStartMin: slotStart,
                                 renamingBlockId: $renamingBlockId,
-                                renamingText: $renamingText
+                                renamingText: $renamingText,
+                                pxPerMinOverride: scale
                             )
                         }
+                        .padding(.leading, 52)
                     }
-                    .padding(12)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    .padding(.vertical, 12)
                 }
             }
         }
         .background(slotFillColor)
+        .onAppear { cascadedCount = state.cascadeOverlaps(inSlot: slotName) }
         .onExitCommand {
             if editingTitle { cancelTitle() } else { state.openSlotName = nil }
         }
+    }
+
+    /// Moving someone's blocks without telling them is not acceptable, so say it.
+    private var cascadeNotice: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "arrow.down.to.line")
+                .font(.system(size: 10, weight: .bold))
+            Text("\(cascadedCount) overlapping \(cascadedCount == 1 ? "block" : "blocks") moved down to clear the conflict")
+                .font(.system(size: 11))
+            Spacer(minLength: 0)
+            Button("Dismiss") { cascadedCount = 0 }
+                .buttonStyle(.plain)
+                .font(.system(size: 11, weight: .semibold))
+        }
+        .foregroundColor(slotFillColor)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .background(Color.orange.opacity(0.85))
+    }
+
+    /// Half-hour ruler, absolutely positioned so a line lands exactly where a
+    /// block edge at the same minute does.
+    private func grid(scale: CGFloat) -> some View {
+        let step = spanMin <= 90 ? 15 : 30
+        let marks = Array(stride(from: slotStart, through: slotEnd, by: step))
+        return ZStack(alignment: .topLeading) {
+            ForEach(marks, id: \.self) { m in
+                HStack(alignment: .center, spacing: 0) {
+                    Text(timeStr(m))
+                        .font(.system(size: 10))
+                        .foregroundColor(slotTextColor.opacity(m % 60 == 0 ? 0.55 : 0.32))
+                        .frame(width: 44, alignment: .trailing)
+                        .padding(.trailing, 6)
+                    Rectangle()
+                        .fill(slotTextColor.opacity(m % 60 == 0 ? 0.16 : 0.08))
+                        .frame(height: 1)
+                }
+                .offset(y: CGFloat(m - slotStart) * scale - 5)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
     private var header: some View {
@@ -2100,105 +2189,6 @@ struct SlotDetailView: View {
         editingTitle = false
         titleDraft = ""
         titleFocused = false
-    }
-
-    private func timeStr(_ min: Int) -> String {
-        String(format: "%02d:%02d", min / 60, min % 60)
-    }
-}
-
-/// One task inside the slot popup. A plain row: status dot, time range, and the
-/// full title wrapped rather than truncated, because reading it is the whole
-/// point of opening the window.
-struct SlotMemberRow: View {
-    let block: Block
-    let state: DayState
-    @Binding var renamingBlockId: UUID?
-    @Binding var renamingText: String
-
-    @FocusState private var fieldFocused: Bool
-    @State private var isHovered: Bool = false
-
-    private var isSelected: Bool { state.selectedBlockId == block.id }
-    private var isRenaming: Bool { renamingBlockId == block.id }
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 8) {
-            Button(action: { state.cycleStatus(block) }) {
-                Circle()
-                    .fill(block.status.color)
-                    .frame(width: 9, height: 9)
-                    .padding(.top, 5)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-
-            VStack(alignment: .leading, spacing: 3) {
-                Text("\(timeStr(block.startMin)) - \(timeStr(block.endMin))  ·  \(compactDuration(block.durationMin))")
-                    .font(.system(size: 11))
-                    .foregroundColor(slotTextColor.opacity(0.55))
-
-                if isRenaming {
-                    TextField("Task", text: $renamingText, axis: .vertical)
-                        .lineLimit(1...8)
-                        .textFieldStyle(.plain)
-                        .font(.system(size: 13))
-                        .foregroundColor(Color(NSColor.textColor))
-                        .focused($fieldFocused)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 4)
-                        .background(
-                            RoundedRectangle(cornerRadius: 4)
-                                .fill(Color(NSColor.textBackgroundColor))
-                                .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.accentColor, lineWidth: 1.5))
-                        )
-                        .onSubmit(commitRename)
-                        .onAppear { fieldFocused = true }
-                } else {
-                    Text(strippingMetadataComments(state.titleWithoutDoneTag(block.title)))
-                        .font(.system(size: 13))
-                        .foregroundColor(block.status == .done || block.status == .skipped
-                                         ? slotTextColor.opacity(0.45) : slotTextColor)
-                        .multilineTextAlignment(.leading)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-            }
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
-        .background(
-            RoundedRectangle(cornerRadius: 6)
-                .fill(slotTextColor.opacity(isHovered ? 0.10 : 0.06))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 6)
-                        .stroke(isSelected ? Color.accentColor : Color.clear, lineWidth: 2)
-                )
-        )
-        .contentShape(Rectangle())
-        .onHover { isHovered = $0 }
-        .onTapGesture(count: 2) {
-            state.selectedBlockId = block.id
-            renamingText = strippingMetadataComments(state.titleWithoutDoneTag(block.title))
-            renamingBlockId = block.id
-        }
-        .onTapGesture { state.selectedBlockId = block.id }
-        .contextMenu {
-            Button("Mark planned") { state.setStatus(block, .planned) }
-            Button("Mark in progress") { state.setStatus(block, .inProgress) }
-            Button("Mark done") { state.setStatus(block, .done) }
-            Button("Mark skipped") { state.setStatus(block, .skipped) }
-            Divider()
-            Button("Delete", role: .destructive) { state.deleteBlock(block) }
-        }
-    }
-
-    private func commitRename() {
-        let metadata = metadataComments(in: block.title)
-        let edited = renamingText.trimmingCharacters(in: .whitespaces)
-        state.updateTitle(block, newTitle: metadata.isEmpty ? edited : "\(edited) \(metadata)")
-        renamingBlockId = nil
     }
 
     private func timeStr(_ min: Int) -> String {
