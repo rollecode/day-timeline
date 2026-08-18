@@ -1,3 +1,9 @@
+### 1.3.3: 2026-08-18
+
+* Make the whole slot clickable, not just its header
+* Wrap text while renaming a block or slot
+* Let a rename field grow past a short block
+
 ### 1.3.2: 2026-08-18
 
 * Merge overlapping time slots into one

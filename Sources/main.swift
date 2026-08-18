@@ -1530,8 +1530,9 @@ struct BlockRow: View {
                 .frame(maxWidth: .infinity, alignment: .bottomLeading)
                 .offset(y: max(0, height - 6))
         }
-        .frame(height: height, alignment: .top)
-        .clipped()
+        .frame(height: isRenaming ? nil : height, alignment: .top)
+        .frame(minHeight: height, alignment: .top)
+        .modifier(ConditionalClip(active: !isRenaming))
         .frame(maxWidth: .infinity, alignment: .leading)
         .offset(x: 0, y: topOffset)
         .padding(.trailing, 12)
@@ -1568,6 +1569,7 @@ struct BlockRow: View {
     }
 
     private var isSelected: Bool { state.selectedBlockId == block.id }
+    private var isRenaming: Bool { renamingBlockId == block.id }
 
     private var background: some View {
         RoundedRectangle(cornerRadius: 6)
@@ -1662,7 +1664,8 @@ struct BlockRow: View {
                 .frame(width: 18, height: 18)
                 .padding(.leading, 6)
 
-            TextField("Task", text: $renamingText)
+            TextField("Task", text: $renamingText, axis: .vertical)
+            .lineLimit(1...6)
             .textFieldStyle(.plain)
             .font(.system(size: 13))
             .foregroundColor(Color(NSColor.textColor))
@@ -1674,13 +1677,12 @@ struct BlockRow: View {
                     .fill(Color(NSColor.textBackgroundColor))
                     .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.accentColor, lineWidth: 1.5))
             )
-            .frame(maxWidth: .infinity)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .onSubmit(commitRename)
             .onAppear { fieldFocused = true }
-
-            Spacer()
         }
-        .frame(height: height, alignment: .top)
+        .padding(.trailing, 8)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
     }
 
     /// The field only ever holds visible text, so the block's metadata comments
@@ -1796,6 +1798,15 @@ extension DayState {
     }
 }
 
+/// `.clipped()` takes no condition, and a block being renamed must not clip its
+/// grown text field.
+struct ConditionalClip: ViewModifier {
+    let active: Bool
+    func body(content: Content) -> some View {
+        if active { content.clipped() } else { content }
+    }
+}
+
 // MARK: - Time slot row (Akiflow-style collapsed container)
 
 /// A time slot: a container block that hides the tasks inside it until clicked.
@@ -1835,6 +1846,11 @@ struct SlotRow: View {
 
             header
 
+            // The whole slot is the hit target. Hanging the gestures off the header
+            // left everything below it dead, so a double click in the empty body of
+            // a three-hour slot did nothing at all.
+            interactionLayer
+
             resizeHandle(top: true)
                 .frame(maxWidth: .infinity, alignment: .topLeading)
             resizeHandle(top: false)
@@ -1851,6 +1867,33 @@ struct SlotRow: View {
             Divider()
             Button("Delete slot", role: .destructive) { state.deleteBlock(block) }
         }
+    }
+
+    private var interactionLayer: some View {
+        Color.clear
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .contentShape(Rectangle())
+            .onHover { hovering in
+                isHovered = hovering
+                if hovering { NSCursor.openHand.set() } else { NSCursor.arrow.set() }
+            }
+            .onTapGesture(count: 2) { onToggle() }
+            .onTapGesture { state.selectedBlockId = block.id }
+            .gesture(
+                DragGesture(minimumDistance: 4)
+                    .updating($moveDelta) { value, gestureState, _ in
+                        gestureState = value.translation.height
+                        state.isInteracting = true
+                    }
+                    .onEnded { value in
+                        state.isInteracting = false
+                        let dy = value.translation.height
+                        if abs(dy) < 4 { return } // a click selects, a double click opens
+                        let rawMin = Int(dy / pxPerMin)
+                        let snapped = Int((Double(rawMin) / Double(snapMinutes)).rounded()) * snapMinutes
+                        state.moveSlot(block, byMinutes: snapped)
+                    }
+            )
     }
 
     /// Count badge, then the name, then the compact duration underneath.
@@ -1890,23 +1933,6 @@ struct SlotRow: View {
             isHovered = hovering
             if hovering { NSCursor.openHand.set() } else { NSCursor.arrow.set() }
         }
-        .onTapGesture(count: 2) { onToggle() }
-        .onTapGesture { state.selectedBlockId = block.id }
-        .gesture(
-            DragGesture(minimumDistance: 4)
-                .updating($moveDelta) { value, gestureState, _ in
-                    gestureState = value.translation.height
-                    state.isInteracting = true
-                }
-                .onEnded { value in
-                    state.isInteracting = false
-                    let dy = value.translation.height
-                    if abs(dy) < 4 { return } // a click selects, a double click opens
-                    let rawMin = Int(dy / pxPerMin)
-                    let snapped = Int((Double(rawMin) / Double(snapMinutes)).rounded()) * snapMinutes
-                    state.moveSlot(block, byMinutes: snapped)
-                }
-        )
     }
 
     @ViewBuilder
@@ -2007,7 +2033,8 @@ struct SlotDetailView: View {
                 .background(RoundedRectangle(cornerRadius: 4).fill(slotTextColor.opacity(0.92)))
             VStack(alignment: .leading, spacing: 1) {
                 if editingTitle {
-                    TextField("Slot name", text: $titleDraft)
+                    TextField("Slot name", text: $titleDraft, axis: .vertical)
+                        .lineLimit(1...4)
                         .textFieldStyle(.plain)
                         .font(.system(size: 14, weight: .semibold))
                         .foregroundColor(Color(NSColor.textColor))
