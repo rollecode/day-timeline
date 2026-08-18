@@ -1,3 +1,10 @@
+### 1.2.1: 2026-08-18
+
+* Fill the slot window height with its timeline
+* Keep slot contents out of the titlebar
+* Align the ruler exactly with block edges
+* Raise every small font by one point
+
 ### 1.2.0: 2026-08-18
 
 * Open a time slot in its own window

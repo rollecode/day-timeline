@@ -1096,7 +1096,7 @@ struct DayTimelineView: View {
             state.addBlock(at: start)
         }) {
             Image(systemName: "plus")
-                .font(.system(size: 13, weight: .medium))
+                .font(.system(size: 14, weight: .medium))
                 .frame(width: 28, height: 28)
         }
         .buttonStyle(.plain)
@@ -1114,7 +1114,7 @@ struct DayTimelineView: View {
     private var followToggle: some View {
         Button(action: { followNow.toggle() }) {
             Image(systemName: followNow ? "scope" : "arrow.up.and.down")
-                .font(.system(size: 13, weight: .medium))
+                .font(.system(size: 14, weight: .medium))
                 .foregroundColor(.white)
                 .frame(width: 28, height: 28)
         }
@@ -1134,7 +1134,7 @@ struct DayTimelineView: View {
         HStack(spacing: 0) {
             Button(action: { state.zoomOut() }) {
                 Image(systemName: "minus.magnifyingglass")
-                    .font(.system(size: 13, weight: .medium))
+                    .font(.system(size: 14, weight: .medium))
                     .frame(width: 28, height: 28)
             }
             .buttonStyle(.plain)
@@ -1144,7 +1144,7 @@ struct DayTimelineView: View {
 
             Button(action: { state.setZoom(1.0) }) {
                 Text("\(Int(state.zoom * 100))%")
-                    .font(.system(size: 11, weight: .medium))
+                    .font(.system(size: 12, weight: .medium))
                     .frame(width: 44, height: 28)
             }
             .buttonStyle(.plain)
@@ -1154,7 +1154,7 @@ struct DayTimelineView: View {
 
             Button(action: { state.zoomIn() }) {
                 Image(systemName: "plus.magnifyingglass")
-                    .font(.system(size: 13, weight: .medium))
+                    .font(.system(size: 14, weight: .medium))
                     .frame(width: 28, height: 28)
             }
             .buttonStyle(.plain)
@@ -1190,7 +1190,7 @@ struct DayTimelineView: View {
             ForEach(Array(stride(from: dayStartMin, through: dayEndMin, by: 60)), id: \.self) { m in
                 HStack(alignment: .top, spacing: 0) {
                     Text(timeStr(m))
-                        .font(.system(size: 10))
+                        .font(.system(size: 11))
                         .foregroundColor(.secondary)
                         .frame(width: 44, alignment: .trailing)
                         .padding(.trailing, 6)
@@ -1401,7 +1401,7 @@ struct BlockRow: View {
     private var statusButton: some View {
         Button(action: { state.cycleStatus(block) }) {
             Text(checkboxGlyph(block.status))
-                .font(.system(size: 12, weight: .bold))
+                .font(.system(size: 13, weight: .bold))
                 .foregroundColor(block.status.color)
                 .frame(width: 18, height: 18)
                 .contentShape(Rectangle())
@@ -1416,7 +1416,7 @@ struct BlockRow: View {
         HStack(alignment: .top, spacing: 8) {
             Spacer().frame(width: 24) // gutter for status button overlay
             blockLabelView()
-                .font(.system(size: 12))
+                .font(.system(size: 13))
                 .foregroundColor(textColor(for: block.status))
             Spacer(minLength: 6)
             serviceIcon
@@ -1469,14 +1469,14 @@ struct BlockRow: View {
     private var renameField: some View {
         HStack(spacing: 8) {
             Text(checkboxGlyph(block.status))
-                .font(.system(size: 12, weight: .bold))
+                .font(.system(size: 13, weight: .bold))
                 .foregroundColor(block.status.color)
                 .frame(width: 18, height: 18)
                 .padding(.leading, 6)
 
             TextField("Task", text: $renamingText, onCommit: commitRename)
             .textFieldStyle(.plain)
-            .font(.system(size: 12))
+            .font(.system(size: 13))
             .onSubmit(commitRename)
             .onExitCommand {
                 renamingBlockId = nil
@@ -1647,7 +1647,7 @@ struct SlotRow: View {
         VStack(alignment: .leading, spacing: 1) {
             HStack(alignment: .center, spacing: 6) {
                 Text("\(memberCount)")
-                    .font(.system(size: 10, weight: .bold))
+                    .font(.system(size: 11, weight: .bold))
                     .foregroundColor(slotFillColor)
                     .frame(minWidth: 15, minHeight: 15)
                     .background(
@@ -1655,18 +1655,18 @@ struct SlotRow: View {
                             .fill(slotTextColor.opacity(0.92))
                     )
                 Text(name)
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.system(size: 13, weight: .semibold))
                     .foregroundColor(slotTextColor)
                     .lineLimit(1)
                 Spacer(minLength: 6)
                 if isExpanded {
                     Image(systemName: "chevron.down")
-                        .font(.system(size: 9, weight: .bold))
+                        .font(.system(size: 10, weight: .bold))
                         .foregroundColor(slotTextColor.opacity(0.6))
                 }
             }
             Text(compactDuration(max(0, liveEndMin - liveStartMin)))
-                .font(.system(size: 10))
+                .font(.system(size: 11))
                 .foregroundColor(slotTextColor.opacity(0.55))
                 .padding(.leading, 21)
         }
@@ -1739,23 +1739,27 @@ struct SlotDetailView: View {
     private var slot: Block? { state.slotBlock(named: slotName) }
     private var memberBlocks: [Block] { state.members(ofSlot: slotName) }
 
-    /// A fixed, generous scale: this window exists to make the contents legible,
-    /// so it does not inherit the main timeline's zoom.
-    private let pxPerMin: CGFloat = 2.2
-
     private var slotStart: Int { slot?.startMin ?? 0 }
     private var slotEnd: Int { slot?.endMin ?? 0 }
+    private var spanMin: Int { max(1, slotEnd - slotStart) }
+
+    /// Vertical breathing room above and below the slot's own span.
+    private let verticalInset: CGFloat = 12
 
     var body: some View {
         VStack(spacing: 0) {
             header
-            Divider()
+            Divider().overlay(slotTextColor.opacity(0.12))
             if memberBlocks.isEmpty {
                 emptyState
             } else {
-                ScrollView {
+                // The slot fills whatever height the window has, rather than a
+                // fixed scale that left most of the window empty and scrolling.
+                GeometryReader { geo in
+                    let usable = max(60, geo.size.height - verticalInset * 2)
+                    let scale = usable / CGFloat(spanMin)
                     ZStack(alignment: .topLeading) {
-                        halfHourGrid
+                        grid(scale: scale)
                         ForEach(memberBlocks) { block in
                             BlockRow(
                                 block: block,
@@ -1763,13 +1767,13 @@ struct SlotDetailView: View {
                                 dayStartMin: slotStart,
                                 renamingBlockId: $renamingBlockId,
                                 renamingText: $renamingText,
-                                pxPerMinOverride: pxPerMin
+                                pxPerMinOverride: scale
                             )
                         }
                         .padding(.leading, 52)
                     }
-                    .frame(height: max(120, CGFloat(slotEnd - slotStart) * pxPerMin) + 24)
-                    .padding(.vertical, 10)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    .padding(.vertical, verticalInset)
                 }
             }
         }
@@ -1779,23 +1783,23 @@ struct SlotDetailView: View {
     private var header: some View {
         HStack(alignment: .center, spacing: 8) {
             Text("\(memberBlocks.count)")
-                .font(.system(size: 11, weight: .bold))
+                .font(.system(size: 12, weight: .bold))
                 .foregroundColor(slotFillColor)
-                .frame(minWidth: 17, minHeight: 17)
+                .frame(minWidth: 18, minHeight: 18)
                 .background(RoundedRectangle(cornerRadius: 4).fill(slotTextColor.opacity(0.92)))
             VStack(alignment: .leading, spacing: 1) {
                 Text(slotName)
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.system(size: 14, weight: .semibold))
                     .foregroundColor(slotTextColor)
                     .lineLimit(1)
-                Text("\(timeStr(slotStart)) - \(timeStr(slotEnd)) · \(compactDuration(max(0, slotEnd - slotStart)))")
-                    .font(.system(size: 10))
+                Text("\(timeStr(slotStart)) - \(timeStr(slotEnd)) · \(compactDuration(spanMin))")
+                    .font(.system(size: 11))
                     .foregroundColor(slotTextColor.opacity(0.55))
             }
             Spacer(minLength: 8)
             Button(action: { state.openSlotName = nil }) {
                 Image(systemName: "xmark")
-                    .font(.system(size: 11, weight: .bold))
+                    .font(.system(size: 12, weight: .bold))
                     .foregroundColor(slotTextColor.opacity(0.8))
                     .frame(width: 22, height: 22)
                     .contentShape(Rectangle())
@@ -1814,30 +1818,35 @@ struct SlotDetailView: View {
         VStack {
             Spacer()
             Text("Nothing in this slot yet.")
-                .font(.system(size: 12))
+                .font(.system(size: 13))
                 .foregroundColor(slotTextColor.opacity(0.5))
             Spacer()
         }
-        .frame(maxWidth: .infinity)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    /// Half-hour ruler rather than hourly: a slot is usually short enough that
-    /// hour lines alone give nothing to aim at when dragging.
-    private var halfHourGrid: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            ForEach(Array(stride(from: slotStart, through: max(slotStart, slotEnd), by: 30)), id: \.self) { m in
-                HStack(alignment: .top, spacing: 0) {
+    /// Half-hour ruler, absolutely positioned so a line lands exactly where a
+    /// block edge at the same minute does. Half-hourly rather than hourly because
+    /// a slot is usually too short for hour lines to give anything to aim at.
+    private func grid(scale: CGFloat) -> some View {
+        let step = spanMin <= 90 ? 15 : 30
+        let marks = Array(stride(from: slotStart, through: slotEnd, by: step))
+        return ZStack(alignment: .topLeading) {
+            ForEach(marks, id: \.self) { m in
+                HStack(alignment: .center, spacing: 0) {
                     Text(timeStr(m))
-                        .font(.system(size: 9))
-                        .foregroundColor(slotTextColor.opacity(0.4))
+                        .font(.system(size: 10))
+                        .foregroundColor(slotTextColor.opacity(m % 60 == 0 ? 0.55 : 0.32))
                         .frame(width: 44, alignment: .trailing)
+                        .padding(.trailing, 6)
                     Rectangle()
-                        .fill(slotTextColor.opacity(0.10))
+                        .fill(slotTextColor.opacity(m % 60 == 0 ? 0.16 : 0.08))
                         .frame(height: 1)
                 }
-                .frame(height: 30 * pxPerMin, alignment: .top)
+                .offset(y: CGFloat(m - slotStart) * scale - 5)
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
     private func timeStr(_ min: Int) -> String {
@@ -2002,12 +2011,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
         let win = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 420, height: 560),
-            styleMask: [.titled, .closable, .resizable, .fullSizeContentView],
+            styleMask: [.titled, .closable, .resizable],
             backing: .buffered,
             defer: false
         )
         win.title = name
-        win.titlebarAppearsTransparent = true
         win.backgroundColor = NSColor(srgbRed: 0x1d/255.0, green: 0x12/255.0, blue: 0x3b/255.0, alpha: 1)
         win.contentView = hosting
         win.level = .floating
