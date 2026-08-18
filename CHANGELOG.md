@@ -1,3 +1,9 @@
+### 1.4.1: 2026-08-18
+
+* Cache compiled regexes instead of rebuilding them per frame
+* Repaint only the clock label on the seconds tick
+* Memoize visible titles, decorations and context-menu links
+
 ### 1.4.0: 2026-08-18
 
 * Right click a block to open it in its own service

@@ -140,15 +140,89 @@ func compactDuration(_ minutes: Int) -> String {
     return "\(m)m"
 }
 
+/// Compiled regexes, cached by pattern. Every helper here runs inside a view
+/// body - `visibleTitle`, `slotDef`, `slot`, the context menu - so recompiling
+/// the pattern per call meant a fresh NSRegularExpression on every frame of a
+/// drag, multiplied by every visible row.
+/// The seconds digit lives here rather than on `DayState`. It changes once a
+/// second, and every view observing DayState was invalidated when it did - so
+/// all visible block rows rebuilt once a second, including in the middle of a
+/// drag. Only the clock label observes this.
+/// Memo for the three derivations that run inside view bodies: the visible title,
+/// the decoration scan, and the context-menu links. Each one allocates strings and
+/// runs regexes, and each was recomputed per row on every frame of a drag. Titles
+/// only change on a rename or a file reload, so during a drag this hits every time.
+private final class DerivedCache {
+    static let shared = DerivedCache()
+    private var titles: [String: String] = [:]
+    private var decors: [String: BlockDecor] = [:]
+    private var links: [String: [BlockLink]] = [:]
+    private let lock = NSLock()
+
+    /// Plan lines number in the dozens, so this never grows meaningfully. The cap
+    /// only guards against a pathological file.
+    private func trim() {
+        if titles.count > 500 { titles.removeAll() }
+        if decors.count > 500 { decors.removeAll() }
+        if links.count > 500 { links.removeAll() }
+    }
+
+    func title(_ key: String, _ make: () -> String) -> String {
+        lock.lock(); defer { lock.unlock() }
+        if let hit = titles[key] { return hit }
+        let made = make(); trim(); titles[key] = made; return made
+    }
+
+    func decor(_ key: String, _ make: () -> BlockDecor) -> BlockDecor {
+        lock.lock(); defer { lock.unlock() }
+        if let hit = decors[key] { return hit }
+        let made = make(); trim(); decors[key] = made; return made
+    }
+
+    func linkList(_ key: String, _ make: () -> [BlockLink]) -> [BlockLink] {
+        lock.lock(); defer { lock.unlock() }
+        if let hit = links[key] { return hit }
+        let made = make(); trim(); links[key] = made; return made
+    }
+}
+
+final class SecondsClock: ObservableObject {
+    static let shared = SecondsClock()
+    @Published var second: Int = 0
+}
+
+private final class RegexCache {
+    static let shared = RegexCache()
+    private var store: [String: NSRegularExpression] = [:]
+    private let lock = NSLock()
+
+    func regex(_ pattern: String) -> NSRegularExpression? {
+        lock.lock()
+        defer { lock.unlock() }
+        if let hit = store[pattern] { return hit }
+        guard let made = try? NSRegularExpression(pattern: pattern) else { return nil }
+        store[pattern] = made
+        return made
+    }
+}
+
+func cachedRegex(_ pattern: String) -> NSRegularExpression? {
+    RegexCache.shared.regex(pattern)
+}
+
 func strippingMetadataComments(_ text: String) -> String {
-    text.replacingOccurrences(of: metadataCommentPattern, with: "", options: .regularExpression)
-        .replacingOccurrences(of: #" {2,}"#, with: " ", options: .regularExpression)
+    guard let comments = cachedRegex(metadataCommentPattern),
+          let runs = cachedRegex(#" {2,}"#) else { return text }
+    let once = comments.stringByReplacingMatches(
+        in: text, range: NSRange(text.startIndex..<text.endIndex, in: text), withTemplate: "")
+    return runs.stringByReplacingMatches(
+        in: once, range: NSRange(once.startIndex..<once.endIndex, in: once), withTemplate: " ")
         .trimmingCharacters(in: .whitespaces)
 }
 
 /// The comments themselves, in order, so a rename can put them back.
 func metadataComments(in text: String) -> String {
-    guard let regex = try? NSRegularExpression(pattern: metadataCommentPattern) else { return "" }
+    guard let regex = cachedRegex(metadataCommentPattern) else { return "" }
     let range = NSRange(text.startIndex..<text.endIndex, in: text)
     return regex.matches(in: text, range: range)
         .compactMap { Range($0.range, in: text).map { String(text[$0]) } }
@@ -168,7 +242,9 @@ struct Block: Identifiable, Equatable {
     var title: String   // freeform text after time range, including (Source)
 
     /// What the timeline shows: the title without its metadata comments.
-    var visibleTitle: String { strippingMetadataComments(title) }
+    var visibleTitle: String {
+        DerivedCache.shared.title(title) { strippingMetadataComments(title) }
+    }
 
     var durationMin: Int { endMin - startMin }
 
@@ -183,7 +259,7 @@ struct Block: Identifiable, Equatable {
     var slot: String? { Block.marker(named: "slot", in: title) }
 
     static func marker(named key: String, in title: String) -> String? {
-        guard let regex = try? NSRegularExpression(pattern: "<!--\\s*\(key):(.+?)\\s*-->") else { return nil }
+        guard let regex = cachedRegex("<!--\\s*\(key):(.+?)\\s*-->") else { return nil }
         let range = NSRange(title.startIndex..<title.endIndex, in: title)
         guard let match = regex.firstMatch(in: title, range: range),
               let r = Range(match.range(at: 1), in: title) else { return nil }
@@ -265,6 +341,13 @@ extension Block {
     /// marker of its own. Deduplicated by URL, because a `lin:` marker and a
     /// markdown link to the same issue are one destination, not two.
     func externalLinks(on date: Date) -> [BlockLink] {
+        let dayKey = googleCalendarDayURL(for: date)
+        return DerivedCache.shared.linkList("\(title)|\(dayKey)") {
+            Block.buildLinks(title: title, dayURL: dayKey)
+        }
+    }
+
+    private static func buildLinks(title: String, dayURL: String) -> [BlockLink] {
         var found: [BlockLink] = []
         var seen = Set<String>()
 
@@ -280,7 +363,7 @@ extension Block {
             add("Open in Linear", URL(string: "https://linear.app/\(linearWorkspace)/issue/\(key)"))
         }
         if Block.marker(named: "cal", in: title) != nil {
-            add("Open in Google Calendar", URL(string: googleCalendarDayURL(for: date)))
+            add("Open in Google Calendar", URL(string: dayURL))
         }
 
         for raw in Block.matches(#"\[[^\]]*\]\((https?://[^)\s]+)\)"#, in: title) {
@@ -306,7 +389,7 @@ extension Block {
 
     /// Every first capture group of `pattern` in `text`, in order.
     static func matches(_ pattern: String, in text: String) -> [String] {
-        guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
+        guard let regex = cachedRegex(pattern) else { return [] }
         let range = NSRange(text.startIndex..<text.endIndex, in: text)
         return regex.matches(in: text, range: range).compactMap { match in
             guard let r = Range(match.range(at: 1), in: text) else { return nil }
@@ -685,7 +768,7 @@ struct PlanFile {
     /// Parses a single line like `- [ ] 10:00 - 11:00 Task name (Source)`.
     static func parseBlockLine(_ line: String) -> Block? {
         let pattern = #"^\s*-\s*\[([ x>\-])\]\s*(\d{1,2}):(\d{2})\s*-\s*(\d{1,2}):(\d{2})\s+(.+)$"#
-        guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
+        guard let regex = cachedRegex(pattern) else { return nil }
         let range = NSRange(line.startIndex..<line.endIndex, in: line)
         guard let match = regex.firstMatch(in: line, range: range) else { return nil }
 
@@ -830,7 +913,6 @@ class DayState: ObservableObject {
     @Published var dateString: String = ""
     @Published var lastError: String?
     @Published var nowMinute: Int = 0
-    @Published var nowSecond: Int = 0
     @Published var zoom: Double = {
         let saved = UserDefaults.standard.double(forKey: "day-timeline.zoom")
         return (saved >= zoomMin && saved <= zoomMax) ? saved : 1.0
@@ -939,7 +1021,7 @@ class DayState: ObservableObject {
 
     private func stripDoneTag(_ title: String) -> String {
         let pattern = #"\s*\(done \d{1,2}:\d{2}\)\s*$"#
-        guard let regex = try? NSRegularExpression(pattern: pattern) else { return title }
+        guard let regex = cachedRegex(pattern) else { return title }
         let range = NSRange(title.startIndex..<title.endIndex, in: title)
         return regex.stringByReplacingMatches(in: title, range: range, withTemplate: "")
             .trimmingCharacters(in: .whitespaces)
@@ -1292,7 +1374,7 @@ class DayState: ObservableObject {
         cal.timeZone = planTimeZone
         let comps = cal.dateComponents([.hour, .minute, .second], from: Date())
         nowMinute = (comps.hour ?? 0) * 60 + (comps.minute ?? 0)
-        nowSecond = comps.second ?? 0
+        SecondsClock.shared.second = comps.second ?? 0
         autoCompleteElapsed()
     }
 
@@ -1505,10 +1587,7 @@ struct DayTimelineView: View {
             Text(state.dateString)
                 .font(.custom("Instrument Serif", size: 22))
             Spacer()
-            Text(timeWithSecondsStr(state.nowMinute, state.nowSecond))
-                .font(.custom("Instrument Serif", size: 20))
-                .foregroundColor(.secondary)
-                .frame(width: 110, alignment: .trailing)
+            ClockLabel(minute: state.nowMinute)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
@@ -1718,7 +1797,10 @@ struct BlockRow: View {
         }
     }
 
-    private var decor: BlockDecor { BlockDecor.compute(for: block.visibleTitle) }
+    private var decor: BlockDecor {
+        let key = block.visibleTitle
+        return DerivedCache.shared.decor(key) { BlockDecor.compute(for: key) }
+    }
 
     private var fillColor: Color {
         let faded = block.status == .done || block.status == .skipped
@@ -1954,10 +2036,23 @@ struct BlockRow: View {
     }
 }
 
+/// Isolated so the once-a-second tick repaints this label and nothing else.
+private struct ClockLabel: View {
+    let minute: Int
+    @ObservedObject private var clock = SecondsClock.shared
+
+    var body: some View {
+        Text(String(format: "%02d:%02d:%02d", minute / 60, minute % 60, clock.second))
+            .font(.custom("Instrument Serif", size: 20))
+            .foregroundColor(.secondary)
+            .frame(width: 110, alignment: .trailing)
+    }
+}
+
 extension DayState {
     func titleWithoutDoneTag(_ title: String) -> String {
         let pattern = #"\s*\(done \d{1,2}:\d{2}\)\s*$"#
-        guard let regex = try? NSRegularExpression(pattern: pattern) else { return title }
+        guard let regex = cachedRegex(pattern) else { return title }
         let range = NSRange(title.startIndex..<title.endIndex, in: title)
         return regex.stringByReplacingMatches(in: title, range: range, withTemplate: "")
             .trimmingCharacters(in: .whitespaces)
