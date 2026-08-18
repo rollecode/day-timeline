@@ -1,6 +1,7 @@
 import SwiftUI
 import AppKit
 import CoreText
+import Combine
 
 // MARK: - Settings
 //
@@ -51,6 +52,7 @@ let zoomMin: Double = 0.5
 let zoomMax: Double = 4.0
 let snapMinutes = 15
 let windowFrameAutosaveName = "DayTimelineWindow"
+let slotWindowFrameAutosaveName = "DayTimelineSlotWindow"
 
 // MARK: - Plan file path for a date
 
@@ -154,7 +156,12 @@ func metadataComments(in text: String) -> String {
 }
 
 struct Block: Identifiable, Equatable {
-    let id = UUID()
+    /// Settable so a reload can carry the previous identity over. A fresh UUID per
+    /// parse would hand SwiftUI an all-new set of rows on every file read - and the
+    /// app reads on its own saves, on FSEvents and on a 2 s poll - which rebuilt the
+    /// whole timeline constantly and made in-flight gestures target blocks that no
+    /// longer existed, so their edits were dropped.
+    var id = UUID()
     var status: BlockStatus
     var startMin: Int   // minutes since midnight
     var endMin: Int
@@ -184,6 +191,14 @@ struct Block: Identifiable, Equatable {
         return name.isEmpty ? nil : name
     }
 
+
+    /// What makes this the "same" block across a re-parse. Metadata ids survive
+    /// time and title edits, so they are the strongest key; the visible title is
+    /// the fallback for hand-written lines that carry no ids.
+    var identityKey: String {
+        let ids = metadataComments(in: title)
+        return ids.isEmpty ? "title:\(visibleTitle)" : "ids:\(ids)"
+    }
 
     static func == (lhs: Block, rhs: Block) -> Bool {
         lhs.id == rhs.id &&
@@ -727,6 +742,13 @@ class DayState: ObservableObject {
     private var lastMtime: Date?
     private(set) var date: Date = Date()
     private var savingNow: Bool = false
+    /// Set while a drag or resize is in flight. Reloading under a live gesture
+    /// resets its @GestureState and yanks the block out from under it.
+    var isInteracting: Bool = false
+    /// The slot currently opened in its own window, if any. Members are never
+    /// drawn inline in the main timeline: they overlapped the slot's own label and
+    /// were unreadable, and a slot three hours tall has no room for them anyway.
+    @Published var openSlotName: String? = nil
     private var lastAutoCompleteCheckMinute: Int = Int.min
 
     init() {
@@ -754,6 +776,7 @@ class DayState: ObservableObject {
         // lands mid-save is skipped here and then looks unchanged on every later
         // poll. The edit is lost until something else touches the file.
         if savingNow { return }
+        if isInteracting { return }
         lastMtime = mtime
         loadFromDisk()
     }
@@ -775,7 +798,7 @@ class DayState: ObservableObject {
     // MARK: status changes with (done HH:MM) tagging
 
     func setStatus(_ block: Block, _ status: BlockStatus) {
-        guard let idx = blocks.firstIndex(of: block) else { return }
+        guard let idx = blocks.firstIndex(where: { $0.id == block.id }) else { return }
         if blocks[idx].status == status { return }
         blocks[idx].status = status
         blocks[idx].title = applyDoneTag(blocks[idx].title, status: status)
@@ -831,7 +854,7 @@ class DayState: ObservableObject {
         self.pre = parsed.preDayPlanner
         self.post = parsed.postDayPlanner
         self.header = parsed.dayPlannerHeader.isEmpty ? "## Day Planner" : parsed.dayPlannerHeader
-        self.blocks = parsed.blocks
+        self.blocks = Self.carryingIds(from: self.blocks, onto: parsed.blocks)
         self.lastError = nil
         self.lastAutoCompleteCheckMinute = Int.min
         autoCompleteElapsed()
@@ -841,9 +864,27 @@ class DayState: ObservableObject {
         }
     }
 
+    /// Re-use the previous identity for any block the re-parse produced a
+    /// counterpart for, so SwiftUI diffs rows instead of replacing them all.
+    private static func carryingIds(from old: [Block], onto new: [Block]) -> [Block] {
+        guard !old.isEmpty else { return new }
+        var pool: [String: [UUID]] = [:]
+        for block in old { pool[block.identityKey, default: []].append(block.id) }
+        return new.map { block in
+            var copy = block
+            if var queue = pool[block.identityKey], let reused = queue.first {
+                queue.removeFirst()
+                pool[block.identityKey] = queue
+                copy.id = reused
+            }
+            return copy
+        }
+    }
+
     private func handleExternalChange() {
         // If we triggered the change ourselves, ignore.
         if savingNow { return }
+        if isInteracting { return }
         // Debounce: wait 200ms in case multiple events fire
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
             self?.loadFromDisk()
@@ -851,7 +892,7 @@ class DayState: ObservableObject {
     }
 
     func cycleStatus(_ block: Block) {
-        guard let idx = blocks.firstIndex(of: block) else { return }
+        guard let idx = blocks.firstIndex(where: { $0.id == block.id }) else { return }
         let newStatus = blocks[idx].status.cycle()
         blocks[idx].status = newStatus
         blocks[idx].title = applyDoneTag(blocks[idx].title, status: newStatus)
@@ -859,7 +900,7 @@ class DayState: ObservableObject {
     }
 
     func updateTitle(_ block: Block, newTitle: String) {
-        guard let idx = blocks.firstIndex(of: block) else { return }
+        guard let idx = blocks.firstIndex(where: { $0.id == block.id }) else { return }
         if blocks[idx].title != newTitle {
             blocks[idx].title = newTitle
             scheduleSave()
@@ -867,7 +908,7 @@ class DayState: ObservableObject {
     }
 
     func updateTime(_ block: Block, newStartMin: Int, newEndMin: Int) {
-        guard let idx = blocks.firstIndex(of: block) else { return }
+        guard let idx = blocks.firstIndex(where: { $0.id == block.id }) else { return }
         let snappedStart = snap(newStartMin)
         let snappedEnd = max(snappedStart + snapMinutes, snap(newEndMin))
         if blocks[idx].startMin != snappedStart || blocks[idx].endMin != snappedEnd {
@@ -879,13 +920,22 @@ class DayState: ObservableObject {
 
     /// Dragging a slot moves everything inside it, the way Akiflow does. Resizing
     /// does not: stretching a container must not stretch the tasks it holds.
+    func members(ofSlot name: String) -> [Block] {
+        blocks.filter { $0.slot == name && $0.slotDef == nil }
+            .sorted { $0.startMin < $1.startMin }
+    }
+
+    func slotBlock(named name: String) -> Block? {
+        blocks.first { $0.slotDef == name }
+    }
+
     func moveSlot(_ slot: Block, byMinutes delta: Int) {
         guard let name = slot.slotDef, delta != 0 else { return }
         for idx in blocks.indices where blocks[idx].slot == name && blocks[idx].slotDef == nil {
             blocks[idx].startMin = max(0, blocks[idx].startMin + delta)
             blocks[idx].endMin = max(0, blocks[idx].endMin + delta)
         }
-        guard let sIdx = blocks.firstIndex(of: slot) else { return }
+        guard let sIdx = blocks.firstIndex(where: { $0.id == slot.id }) else { return }
         blocks[sIdx].startMin = max(0, blocks[sIdx].startMin + delta)
         blocks[sIdx].endMin = max(0, blocks[sIdx].endMin + delta)
         scheduleSave()
@@ -970,7 +1020,6 @@ class DayState: ObservableObject {
 
 struct DayTimelineView: View {
     @ObservedObject var state: DayState
-    @State private var expandedSlots: Set<String> = []
     @State private var renamingBlockId: UUID?
     @State private var renamingText: String = ""
     @AppStorage("day-timeline.followNow") private var followNow: Bool = true
@@ -1156,24 +1205,17 @@ struct DayTimelineView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    /// Blocks that belong to a collapsed slot are not drawn at all; the slot row
-    /// stands in for them. Expanding a slot reveals its members, inset inside it.
+    /// Slot members never render in the main timeline. The slot row stands in for
+    /// them and opens them in a dedicated window instead.
     private var slotDefs: [Block] { state.blocks.filter { $0.slotDef != nil } }
 
-    private func members(of slotName: String) -> [Block] {
-        state.blocks.filter { $0.slot == slotName && $0.slotDef == nil }
-            .sorted { $0.startMin < $1.startMin }
-    }
-
-    /// Every slot name that actually has a defining row, so a stray `slot:`
-    /// marker with no container still renders as an ordinary block.
     private var definedSlotNames: Set<String> { Set(slotDefs.compactMap { $0.slotDef }) }
 
     private var looseBlocks: [Block] {
         state.blocks.filter { block in
-            guard block.slotDef == nil else { return false }
-            guard let slot = block.slot, definedSlotNames.contains(slot) else { return true }
-            return expandedSlots.contains(slot)
+            guard block.slotDef == nil else { return true == false }
+            if let slot = block.slot, definedSlotNames.contains(slot) { return false }
+            return true
         }
     }
 
@@ -1182,8 +1224,8 @@ struct DayTimelineView: View {
             ForEach(slotDefs) { slot in
                 SlotRow(
                     block: slot,
-                    memberCount: members(of: slot.slotDef ?? "").count,
-                    isExpanded: expandedSlots.contains(slot.slotDef ?? ""),
+                    memberCount: state.members(ofSlot: slot.slotDef ?? "").count,
+                    isExpanded: state.openSlotName == slot.slotDef,
                     state: state,
                     dayStartMin: dayStartMin,
                     onToggle: { toggleSlot(slot.slotDef ?? "") }
@@ -1191,24 +1233,14 @@ struct DayTimelineView: View {
             }
             ForEach(looseBlocks) { block in
                 blockView(block)
-                    .padding(.leading, isInsideExpandedSlot(block) ? 18 : 0)
             }
         }
         .padding(.leading, 56) // leave hour-label gutter
     }
 
-    private func isInsideExpandedSlot(_ block: Block) -> Bool {
-        guard let slot = block.slot else { return false }
-        return definedSlotNames.contains(slot) && expandedSlots.contains(slot)
-    }
-
     private func toggleSlot(_ name: String) {
         guard !name.isEmpty else { return }
-        if expandedSlots.contains(name) {
-            expandedSlots.remove(name)
-        } else {
-            expandedSlots.insert(name)
-        }
+        state.openSlotName = (state.openSlotName == name) ? nil : name
     }
 
     @ViewBuilder
@@ -1269,13 +1301,16 @@ struct BlockRow: View {
     let dayStartMin: Int
     @Binding var renamingBlockId: UUID?
     @Binding var renamingText: String
+    /// Set by the slot detail window, which uses a fixed legible scale instead of
+    /// the main timeline's zoom.
+    var pxPerMinOverride: CGFloat? = nil
 
     @GestureState private var moveDelta: CGFloat = 0
     @GestureState private var topResizeDelta: CGFloat = 0
     @GestureState private var bottomResizeDelta: CGFloat = 0
     @State private var isHovered: Bool = false
 
-    private var pxPerMin: CGFloat { state.pixelsPerMinute }
+    private var pxPerMin: CGFloat { pxPerMinOverride ?? state.pixelsPerMinute }
 
     private var liveStartMin: Int {
         block.startMin + Int((moveDelta + topResizeDelta) / pxPerMin)
@@ -1405,8 +1440,10 @@ struct BlockRow: View {
             DragGesture(minimumDistance: 4)
                 .updating($moveDelta) { value, gestureState, _ in
                     gestureState = value.translation.height
+                    state.isInteracting = true
                 }
                 .onEnded { value in
+                    state.isInteracting = false
                     let dy = value.translation.height
                     if abs(dy) < 4 { return } // pure click, ignore (right-click for menu)
                     let rawMin = Int(dy / pxPerMin)
@@ -1476,8 +1513,10 @@ struct BlockRow: View {
                 DragGesture(minimumDistance: 1)
                     .updating(top ? $topResizeDelta : $bottomResizeDelta) { value, gestureState, _ in
                         gestureState = value.translation.height
+                        state.isInteracting = true
                     }
                     .onEnded { value in
+                        state.isInteracting = false
                         let dyMin = Int(value.translation.height / pxPerMin)
                         if top {
                             let newStart = block.startMin + dyMin
@@ -1645,8 +1684,10 @@ struct SlotRow: View {
             DragGesture(minimumDistance: 4)
                 .updating($moveDelta) { value, gestureState, _ in
                     gestureState = value.translation.height
+                    state.isInteracting = true
                 }
                 .onEnded { value in
+                    state.isInteracting = false
                     let dy = value.translation.height
                     if abs(dy) < 4 { return } // a click is an expand, not a move
                     let rawMin = Int(dy / pxPerMin)
@@ -1668,8 +1709,10 @@ struct SlotRow: View {
                 DragGesture(minimumDistance: 1)
                     .updating(top ? $topResizeDelta : $bottomResizeDelta) { value, gestureState, _ in
                         gestureState = value.translation.height
+                        state.isInteracting = true
                     }
                     .onEnded { value in
+                        state.isInteracting = false
                         let dyMin = Int(value.translation.height / pxPerMin)
                         if top {
                             state.updateTime(block, newStartMin: block.startMin + dyMin, newEndMin: block.endMin)
@@ -1678,6 +1721,127 @@ struct SlotRow: View {
                         }
                     }
             )
+    }
+}
+
+// MARK: - Slot detail window
+
+/// The contents of one time slot, isolated in its own window so there is room to
+/// read and reorganise. It reads the same DayState as the main timeline, so every
+/// edit here lands in the plan file and shows up there immediately, and vice versa.
+struct SlotDetailView: View {
+    @ObservedObject var state: DayState
+    let slotName: String
+
+    @State private var renamingBlockId: UUID?
+    @State private var renamingText: String = ""
+
+    private var slot: Block? { state.slotBlock(named: slotName) }
+    private var memberBlocks: [Block] { state.members(ofSlot: slotName) }
+
+    /// A fixed, generous scale: this window exists to make the contents legible,
+    /// so it does not inherit the main timeline's zoom.
+    private let pxPerMin: CGFloat = 2.2
+
+    private var slotStart: Int { slot?.startMin ?? 0 }
+    private var slotEnd: Int { slot?.endMin ?? 0 }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            header
+            Divider()
+            if memberBlocks.isEmpty {
+                emptyState
+            } else {
+                ScrollView {
+                    ZStack(alignment: .topLeading) {
+                        halfHourGrid
+                        ForEach(memberBlocks) { block in
+                            BlockRow(
+                                block: block,
+                                state: state,
+                                dayStartMin: slotStart,
+                                renamingBlockId: $renamingBlockId,
+                                renamingText: $renamingText,
+                                pxPerMinOverride: pxPerMin
+                            )
+                        }
+                        .padding(.leading, 52)
+                    }
+                    .frame(height: max(120, CGFloat(slotEnd - slotStart) * pxPerMin) + 24)
+                    .padding(.vertical, 10)
+                }
+            }
+        }
+        .background(slotFillColor)
+    }
+
+    private var header: some View {
+        HStack(alignment: .center, spacing: 8) {
+            Text("\(memberBlocks.count)")
+                .font(.system(size: 11, weight: .bold))
+                .foregroundColor(slotFillColor)
+                .frame(minWidth: 17, minHeight: 17)
+                .background(RoundedRectangle(cornerRadius: 4).fill(slotTextColor.opacity(0.92)))
+            VStack(alignment: .leading, spacing: 1) {
+                Text(slotName)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(slotTextColor)
+                    .lineLimit(1)
+                Text("\(timeStr(slotStart)) - \(timeStr(slotEnd)) · \(compactDuration(max(0, slotEnd - slotStart)))")
+                    .font(.system(size: 10))
+                    .foregroundColor(slotTextColor.opacity(0.55))
+            }
+            Spacer(minLength: 8)
+            Button(action: { state.openSlotName = nil }) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundColor(slotTextColor.opacity(0.8))
+                    .frame(width: 22, height: 22)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .keyboardShortcut(.cancelAction)
+            .onHover { hovering in
+                if hovering { NSCursor.pointingHand.set() } else { NSCursor.arrow.set() }
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+    }
+
+    private var emptyState: some View {
+        VStack {
+            Spacer()
+            Text("Nothing in this slot yet.")
+                .font(.system(size: 12))
+                .foregroundColor(slotTextColor.opacity(0.5))
+            Spacer()
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    /// Half-hour ruler rather than hourly: a slot is usually short enough that
+    /// hour lines alone give nothing to aim at when dragging.
+    private var halfHourGrid: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(Array(stride(from: slotStart, through: max(slotStart, slotEnd), by: 30)), id: \.self) { m in
+                HStack(alignment: .top, spacing: 0) {
+                    Text(timeStr(m))
+                        .font(.system(size: 9))
+                        .foregroundColor(slotTextColor.opacity(0.4))
+                        .frame(width: 44, alignment: .trailing)
+                    Rectangle()
+                        .fill(slotTextColor.opacity(0.10))
+                        .frame(height: 1)
+                }
+                .frame(height: 30 * pxPerMin, alignment: .top)
+            }
+        }
+    }
+
+    private func timeStr(_ min: Int) -> String {
+        String(format: "%02d:%02d", min / 60, min % 60)
     }
 }
 
@@ -1782,10 +1946,12 @@ enum AppIcon {
 
 // MARK: - App + window
 
-class AppDelegate: NSObject, NSApplicationDelegate {
+class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var window: NSWindow!
     let state = DayState()
     private var scrollMonitor: Any?
+    private var slotWindow: NSWindow?
+    private var slotCancellable: AnyCancellable?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         registerBundledFonts()
@@ -1811,6 +1977,60 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         installScrollMonitor()
+        // One window at a time, driven by state so the timeline, the slot row and
+        // the window itself never disagree about what is open.
+        slotCancellable = state.$openSlotName
+            .removeDuplicates()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] name in
+                self?.syncSlotWindow(to: name)
+            }
+    }
+
+    private func syncSlotWindow(to name: String?) {
+        guard let name else {
+            slotWindow?.orderOut(nil)
+            slotWindow = nil
+            return
+        }
+        let hosting = NSHostingView(rootView: SlotDetailView(state: state, slotName: name))
+        if let existing = slotWindow {
+            existing.title = name
+            existing.contentView = hosting
+            existing.makeKeyAndOrderFront(nil)
+            return
+        }
+        let win = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 560),
+            styleMask: [.titled, .closable, .resizable, .fullSizeContentView],
+            backing: .buffered,
+            defer: false
+        )
+        win.title = name
+        win.titlebarAppearsTransparent = true
+        win.backgroundColor = NSColor(srgbRed: 0x1d/255.0, green: 0x12/255.0, blue: 0x3b/255.0, alpha: 1)
+        win.contentView = hosting
+        win.level = .floating
+        win.isReleasedWhenClosed = false
+        win.delegate = self
+        win.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        win.setFrameAutosaveName(slotWindowFrameAutosaveName)
+        if !win.setFrameUsingName(slotWindowFrameAutosaveName) {
+            // Sit beside the main window rather than on top of it.
+            var origin = window.frame.origin
+            origin.x += window.frame.width + 12
+            win.setFrameOrigin(origin)
+        }
+        slotWindow = win
+        win.makeKeyAndOrderFront(nil)
+    }
+
+    /// Closing the window with its own control must clear the state too, or the
+    /// slot row would keep claiming it is open.
+    func windowWillClose(_ notification: Notification) {
+        guard let closing = notification.object as? NSWindow, closing === slotWindow else { return }
+        slotWindow = nil
+        if state.openSlotName != nil { state.openSlotName = nil }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {

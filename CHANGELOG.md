@@ -1,3 +1,12 @@
+### 1.2.0: 2026-08-18
+
+* Open a time slot in its own window
+* Close the slot window with X or Escape
+* Keep block identity stable across reloads
+* Stop dropping drag and resize edits
+* Never reload the file mid-gesture
+* Scale slot contents independently of zoom
+
 ### 1.1.0: 2026-08-18
 
 * Add Akiflow-style collapsible time slots
