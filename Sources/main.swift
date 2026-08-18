@@ -1984,9 +1984,6 @@ struct SlotDetailView: View {
     private var slotEnd: Int { slot?.endMin ?? 0 }
     private var spanMin: Int { max(1, slotEnd - slotStart) }
 
-    /// Vertical breathing room above and below the slot's own span.
-    private let verticalInset: CGFloat = 12
-
     var body: some View {
         VStack(spacing: 0) {
             header
@@ -1994,27 +1991,22 @@ struct SlotDetailView: View {
             if memberBlocks.isEmpty {
                 emptyState
             } else {
-                // The slot fills whatever height the window has, rather than a
-                // fixed scale that left most of the window empty and scrolling.
-                GeometryReader { geo in
-                    let usable = max(60, geo.size.height - verticalInset * 2)
-                    let scale = usable / CGFloat(spanMin)
-                    ZStack(alignment: .topLeading) {
-                        grid(scale: scale)
+                // A list, not a mini-timeline. Absolute positioning drew overlapping
+                // members on top of each other and the text became unreadable; inside
+                // a popup meant for reading and reorganising, order matters and exact
+                // vertical scale does not.
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 6) {
                         ForEach(memberBlocks) { block in
-                            BlockRow(
+                            SlotMemberRow(
                                 block: block,
                                 state: state,
-                                dayStartMin: slotStart,
                                 renamingBlockId: $renamingBlockId,
-                                renamingText: $renamingText,
-                                pxPerMinOverride: scale
+                                renamingText: $renamingText
                             )
                         }
-                        .padding(.leading, 52)
                     }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                    .padding(.vertical, verticalInset)
+                    .padding(12)
                 }
             }
         }
@@ -2098,30 +2090,6 @@ struct SlotDetailView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    /// Half-hour ruler, absolutely positioned so a line lands exactly where a
-    /// block edge at the same minute does. Half-hourly rather than hourly because
-    /// a slot is usually too short for hour lines to give anything to aim at.
-    private func grid(scale: CGFloat) -> some View {
-        let step = spanMin <= 90 ? 15 : 30
-        let marks = Array(stride(from: slotStart, through: slotEnd, by: step))
-        return ZStack(alignment: .topLeading) {
-            ForEach(marks, id: \.self) { m in
-                HStack(alignment: .center, spacing: 0) {
-                    Text(timeStr(m))
-                        .font(.system(size: 10))
-                        .foregroundColor(slotTextColor.opacity(m % 60 == 0 ? 0.55 : 0.32))
-                        .frame(width: 44, alignment: .trailing)
-                        .padding(.trailing, 6)
-                    Rectangle()
-                        .fill(slotTextColor.opacity(m % 60 == 0 ? 0.16 : 0.08))
-                        .frame(height: 1)
-                }
-                .offset(y: CGFloat(m - slotStart) * scale - 5)
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-    }
-
     private func commitTitle() {
         state.renameSlot(from: slotName, to: titleDraft)
         editingTitle = false
@@ -2132,6 +2100,105 @@ struct SlotDetailView: View {
         editingTitle = false
         titleDraft = ""
         titleFocused = false
+    }
+
+    private func timeStr(_ min: Int) -> String {
+        String(format: "%02d:%02d", min / 60, min % 60)
+    }
+}
+
+/// One task inside the slot popup. A plain row: status dot, time range, and the
+/// full title wrapped rather than truncated, because reading it is the whole
+/// point of opening the window.
+struct SlotMemberRow: View {
+    let block: Block
+    let state: DayState
+    @Binding var renamingBlockId: UUID?
+    @Binding var renamingText: String
+
+    @FocusState private var fieldFocused: Bool
+    @State private var isHovered: Bool = false
+
+    private var isSelected: Bool { state.selectedBlockId == block.id }
+    private var isRenaming: Bool { renamingBlockId == block.id }
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 8) {
+            Button(action: { state.cycleStatus(block) }) {
+                Circle()
+                    .fill(block.status.color)
+                    .frame(width: 9, height: 9)
+                    .padding(.top, 5)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text("\(timeStr(block.startMin)) - \(timeStr(block.endMin))  ·  \(compactDuration(block.durationMin))")
+                    .font(.system(size: 11))
+                    .foregroundColor(slotTextColor.opacity(0.55))
+
+                if isRenaming {
+                    TextField("Task", text: $renamingText, axis: .vertical)
+                        .lineLimit(1...8)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 13))
+                        .foregroundColor(Color(NSColor.textColor))
+                        .focused($fieldFocused)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 4)
+                        .background(
+                            RoundedRectangle(cornerRadius: 4)
+                                .fill(Color(NSColor.textBackgroundColor))
+                                .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.accentColor, lineWidth: 1.5))
+                        )
+                        .onSubmit(commitRename)
+                        .onAppear { fieldFocused = true }
+                } else {
+                    Text(strippingMetadataComments(state.titleWithoutDoneTag(block.title)))
+                        .font(.system(size: 13))
+                        .foregroundColor(block.status == .done || block.status == .skipped
+                                         ? slotTextColor.opacity(0.45) : slotTextColor)
+                        .multilineTextAlignment(.leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 6)
+                .fill(slotTextColor.opacity(isHovered ? 0.10 : 0.06))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(isSelected ? Color.accentColor : Color.clear, lineWidth: 2)
+                )
+        )
+        .contentShape(Rectangle())
+        .onHover { isHovered = $0 }
+        .onTapGesture(count: 2) {
+            state.selectedBlockId = block.id
+            renamingText = strippingMetadataComments(state.titleWithoutDoneTag(block.title))
+            renamingBlockId = block.id
+        }
+        .onTapGesture { state.selectedBlockId = block.id }
+        .contextMenu {
+            Button("Mark planned") { state.setStatus(block, .planned) }
+            Button("Mark in progress") { state.setStatus(block, .inProgress) }
+            Button("Mark done") { state.setStatus(block, .done) }
+            Button("Mark skipped") { state.setStatus(block, .skipped) }
+            Divider()
+            Button("Delete", role: .destructive) { state.deleteBlock(block) }
+        }
+    }
+
+    private func commitRename() {
+        let metadata = metadataComments(in: block.title)
+        let edited = renamingText.trimmingCharacters(in: .whitespaces)
+        state.updateTitle(block, newTitle: metadata.isEmpty ? edited : "\(edited) \(metadata)")
+        renamingBlockId = nil
     }
 
     private func timeStr(_ min: Int) -> String {

@@ -1,3 +1,10 @@
+### 1.3.4: 2026-08-18
+
+* Show slot contents as a list, not a timeline
+* Stop overlapping members drawing over each other
+* Wrap member titles in full inside the popup
+* Set status and rename from the slot popup
+
 ### 1.3.3: 2026-08-18
 
 * Make the whole slot clickable, not just its header
