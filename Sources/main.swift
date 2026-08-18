@@ -929,6 +929,7 @@ class DayState: ObservableObject {
     /// non-slot blocks are considered, which makes this idempotent and leaves
     /// hand-made slots and renamed auto slots alone.
     func autoGroupOverlaps() {
+        mergeOverlappingSlots()
         absorbIntoExistingSlots()
         let loose = blocks.enumerated()
             .filter { $0.element.slotDef == nil && $0.element.slot == nil }
@@ -967,6 +968,42 @@ class DayState: ObservableObject {
             created = true
         }
         if created { scheduleSave() }
+    }
+
+    /// Two slots covering the same minutes is not a thing that exists. A time slot
+    /// is a container for a stretch of the day, so overlapping slots are one slot
+    /// that got split in two. The earlier one keeps its name and swallows the other.
+    private func mergeOverlappingSlots() {
+        var didMerge = true
+        var passes = 0
+        while didMerge && passes < 20 {
+            didMerge = false
+            passes += 1
+            let slots = blocks.enumerated()
+                .filter { $0.element.slotDef != nil }
+                .sorted { $0.element.startMin < $1.element.startMin }
+            guard slots.count > 1 else { break }
+            outer: for i in 0..<(slots.count - 1) {
+                for j in (i + 1)..<slots.count {
+                    let a = slots[i], b = slots[j]
+                    guard a.element.startMin < b.element.endMin,
+                          a.element.endMin > b.element.startMin,
+                          let keep = a.element.slotDef,
+                          let drop = b.element.slotDef else { continue }
+                    blocks[a.offset].startMin = min(a.element.startMin, b.element.startMin)
+                    blocks[a.offset].endMin = max(a.element.endMin, b.element.endMin)
+                    for idx in blocks.indices where blocks[idx].slot == drop {
+                        blocks[idx].title = blocks[idx].title
+                            .replacingOccurrences(of: "<!-- slot:\(drop) -->", with: "<!-- slot:\(keep) -->")
+                    }
+                    let dropId = b.element.id
+                    blocks.removeAll { $0.id == dropId }
+                    didMerge = true
+                    break outer
+                }
+            }
+            if didMerge { scheduleSave() }
+        }
     }
 
     /// A block sitting inside an existing slot's span belongs to that slot. Without
@@ -1125,6 +1162,7 @@ struct DayTimelineView: View {
     @ObservedObject var state: DayState
     @State private var renamingBlockId: UUID?
     @State private var renamingText: String = ""
+    @State private var escapeMonitor: Any?
     @AppStorage("day-timeline.followNow") private var followNow: Bool = true
 
     private var dayStartMin: Int {
@@ -1194,7 +1232,31 @@ struct DayTimelineView: View {
                 .padding(12)
         }
         .background(Color(NSColor.windowBackgroundColor))
-        .onExitCommand { clearInteraction() }
+        .onAppear { installEscapeMonitor() }
+        .onDisappear {
+            if let m = escapeMonitor { NSEvent.removeMonitor(m) }
+            escapeMonitor = nil
+        }
+    }
+
+    /// SwiftUI's .onExitCommand does not reach a focused TextField, so Escape fell
+    /// through to AppKit unhandled and produced the error beep. Returning nil from
+    /// a local monitor both handles the key and swallows the beep.
+    private func installEscapeMonitor() {
+        guard escapeMonitor == nil else { return }
+        escapeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            guard event.keyCode == 53 else { return event } // 53 = Escape
+            // The slot window carries the slot's name as its title, which is how we
+            // tell the two windows apart from a single app-wide monitor.
+            if let open = state.openSlotName, NSApp.keyWindow?.title == open {
+                state.openSlotName = nil
+                return nil
+            }
+            let wasActive = renamingBlockId != nil || state.selectedBlockId != nil
+            clearInteraction()
+            NSApp.keyWindow?.makeFirstResponder(nil)
+            return wasActive ? nil : event
+        }
     }
 
     private var addBlockButton: some View {
@@ -1328,77 +1390,21 @@ struct DayTimelineView: View {
         }
     }
 
-    /// Anything that still overlaps after auto-grouping is laid out side by side
-    /// rather than stacked, the way a calendar does it. Stacking made the text of
-    /// both blocks unreadable, which is the bug this exists to prevent.
-    private func columnLayout(for items: [Block]) -> [UUID: (index: Int, total: Int)] {
-        var result: [UUID: (Int, Int)] = [:]
-        let sorted = items.sorted { $0.startMin < $1.startMin }
-        var cluster: [Block] = []
-        var clusterEnd = Int.min
-
-        func flush() {
-            guard !cluster.isEmpty else { return }
-            var columnEnds: [Int] = []
-            var assigned: [(Block, Int)] = []
-            for block in cluster {
-                if let free = columnEnds.firstIndex(where: { $0 <= block.startMin }) {
-                    columnEnds[free] = block.endMin
-                    assigned.append((block, free))
-                } else {
-                    columnEnds.append(block.endMin)
-                    assigned.append((block, columnEnds.count - 1))
-                }
-            }
-            let total = max(1, columnEnds.count)
-            for (block, col) in assigned { result[block.id] = (col, total) }
-            cluster = []
-            clusterEnd = Int.min
-        }
-
-        for block in sorted {
-            if block.startMin < clusterEnd {
-                cluster.append(block)
-                clusterEnd = max(clusterEnd, block.endMin)
-            } else {
-                flush()
-                cluster = [block]
-                clusterEnd = block.endMin
-            }
-        }
-        flush()
-        return result
-    }
-
     private var blocksLayer: some View {
-        let slots = slotDefs
-        let loose = looseBlocks
-        let slotCols = columnLayout(for: slots)
-        let looseCols = columnLayout(for: loose)
-        return GeometryReader { geo in
-            let width = max(80, geo.size.width)
-            ZStack(alignment: .topLeading) {
-                ForEach(slots) { slot in
-                    let c = slotCols[slot.id] ?? (0, 1)
-                    SlotRow(
-                        block: slot,
-                        memberCount: state.members(ofSlot: slot.slotDef ?? "").count,
-                        isExpanded: state.openSlotName == slot.slotDef,
-                        state: state,
-                        dayStartMin: dayStartMin,
-                        onToggle: { toggleSlot(slot.slotDef ?? "") }
-                    )
-                    .frame(width: width / CGFloat(c.total))
-                    .offset(x: width / CGFloat(c.total) * CGFloat(c.index))
-                }
-                ForEach(loose) { block in
-                    let c = looseCols[block.id] ?? (0, 1)
-                    blockView(block)
-                        .frame(width: width / CGFloat(c.total))
-                        .offset(x: width / CGFloat(c.total) * CGFloat(c.index))
-                }
+        ZStack(alignment: .topLeading) {
+            ForEach(slotDefs) { slot in
+                SlotRow(
+                    block: slot,
+                    memberCount: state.members(ofSlot: slot.slotDef ?? "").count,
+                    isExpanded: state.openSlotName == slot.slotDef,
+                    state: state,
+                    dayStartMin: dayStartMin,
+                    onToggle: { toggleSlot(slot.slotDef ?? "") }
+                )
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            ForEach(looseBlocks) { block in
+                blockView(block)
+            }
         }
         .padding(.leading, 56) // leave hour-label gutter
     }
@@ -1668,8 +1674,8 @@ struct BlockRow: View {
                     .fill(Color(NSColor.textBackgroundColor))
                     .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.accentColor, lineWidth: 1.5))
             )
+            .frame(maxWidth: .infinity)
             .onSubmit(commitRename)
-            .onExitCommand { cancelRename() }
             .onAppear { fieldFocused = true }
 
             Spacer()
@@ -2013,8 +2019,8 @@ struct SlotDetailView: View {
                                 .fill(Color(NSColor.textBackgroundColor))
                                 .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.accentColor, lineWidth: 1.5))
                         )
+                        .frame(maxWidth: .infinity)
                         .onSubmit(commitTitle)
-                        .onExitCommand { cancelTitle() }
                         .onAppear { titleFocused = true }
                 } else {
                     // One click to rename: an auto-named slot is called "3 tasks"

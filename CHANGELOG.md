@@ -1,3 +1,10 @@
+### 1.3.2: 2026-08-18
+
+* Merge overlapping time slots into one
+* Never lay blocks out side by side
+* Make Escape actually cancel instead of beeping
+* Stretch rename fields to the full block width
+
 ### 1.3.1: 2026-08-18
 
 * Cancel edits and selection with Escape
