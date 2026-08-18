@@ -1,3 +1,12 @@
+### 1.3.0: 2026-08-18
+
+* Fold overlapping blocks into a slot automatically
+* Name auto slots after their task count
+* Select blocks and slots with one click
+* Rename a block by double-clicking it
+* Open a slot by double-clicking it
+* Rename a slot from its window title
+
 ### 1.2.1: 2026-08-18
 
 * Fill the slot window height with its timeline

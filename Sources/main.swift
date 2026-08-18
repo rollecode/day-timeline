@@ -749,6 +749,9 @@ class DayState: ObservableObject {
     /// drawn inline in the main timeline: they overlapped the slot's own label and
     /// were unreadable, and a slot three hours tall has no room for them anyway.
     @Published var openSlotName: String? = nil
+    /// Single click selects; double click acts. Selection is view state but lives
+    /// here so a slot and its blocks cannot disagree about what is selected.
+    @Published var selectedBlockId: UUID? = nil
     private var lastAutoCompleteCheckMinute: Int = Int.min
 
     init() {
@@ -858,6 +861,7 @@ class DayState: ObservableObject {
         self.lastError = nil
         self.lastAutoCompleteCheckMinute = Int.min
         autoCompleteElapsed()
+        autoGroupOverlaps()
         if let attrs = try? FileManager.default.attributesOfItem(atPath: path),
            let mtime = attrs[.modificationDate] as? Date {
             self.lastMtime = mtime
@@ -920,6 +924,82 @@ class DayState: ObservableObject {
 
     /// Dragging a slot moves everything inside it, the way Akiflow does. Resizing
     /// does not: stretching a container must not stretch the tasks it holds.
+    /// Blocks whose times overlap are unreadable stacked on one another, so any
+    /// cluster of them is folded into a slot automatically. Only ungrouped,
+    /// non-slot blocks are considered, which makes this idempotent and leaves
+    /// hand-made slots and renamed auto slots alone.
+    func autoGroupOverlaps() {
+        let loose = blocks.enumerated()
+            .filter { $0.element.slotDef == nil && $0.element.slot == nil }
+            .sorted { $0.element.startMin < $1.element.startMin }
+        guard loose.count > 1 else { return }
+
+        var clusters: [[Int]] = []
+        var current: [Int] = [loose[0].offset]
+        var clusterEnd = loose[0].element.endMin
+        for entry in loose.dropFirst() {
+            if entry.element.startMin < clusterEnd {
+                current.append(entry.offset)
+                clusterEnd = max(clusterEnd, entry.element.endMin)
+            } else {
+                clusters.append(current)
+                current = [entry.offset]
+                clusterEnd = entry.element.endMin
+            }
+        }
+        clusters.append(current)
+
+        var created = false
+        for cluster in clusters where cluster.count > 1 {
+            let starts = cluster.map { blocks[$0].startMin }
+            let ends = cluster.map { blocks[$0].endMin }
+            let name = uniqueAutoSlotName(count: cluster.count)
+            for idx in cluster {
+                blocks[idx].title += " <!-- slot:\(name) -->"
+            }
+            var slot = Block(status: .planned,
+                             startMin: starts.min() ?? 0,
+                             endMin: ends.max() ?? 0,
+                             title: "\(name) <!-- slot-def:\(name) --> <!-- slot-auto -->")
+            slot.id = UUID()
+            blocks.append(slot)
+            created = true
+        }
+        if created { scheduleSave() }
+    }
+
+    /// "3 tasks", or "3 tasks (10:00)" when a slot by that name already exists.
+    private func uniqueAutoSlotName(count: Int) -> String {
+        let base = "\(count) tasks"
+        let taken = Set(blocks.compactMap { $0.slotDef })
+        guard taken.contains(base) else { return base }
+        var n = 2
+        while taken.contains("\(base) \(n)") { n += 1 }
+        return "\(base) \(n)"
+    }
+
+    /// Renaming a slot has to move its members too, or they orphan.
+    func renameSlot(from old: String, to new: String) {
+        let trimmed = new.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty, trimmed != old else { return }
+        for idx in blocks.indices {
+            if blocks[idx].slotDef == old {
+                blocks[idx].title = blocks[idx].title
+                    .replacingOccurrences(of: "<!-- slot-def:\(old) -->", with: "<!-- slot-def:\(trimmed) -->")
+                let visible = strippingMetadataComments(blocks[idx].title)
+                if visible == old {
+                    blocks[idx].title = blocks[idx].title.replacingOccurrences(of: old, with: trimmed, options: [], range: blocks[idx].title.range(of: old))
+                }
+            }
+            if blocks[idx].slot == old {
+                blocks[idx].title = blocks[idx].title
+                    .replacingOccurrences(of: "<!-- slot:\(old) -->", with: "<!-- slot:\(trimmed) -->")
+            }
+        }
+        if openSlotName == old { openSlotName = trimmed }
+        scheduleSave()
+    }
+
     func members(ofSlot name: String) -> [Block] {
         blocks.filter { $0.slot == name && $0.slotDef == nil }
             .sorted { $0.startMin < $1.startMin }
@@ -1388,12 +1468,15 @@ struct BlockRow: View {
         return block.status.color.opacity(isHovered ? 0.32 : 0.20)
     }
 
+    private var isSelected: Bool { state.selectedBlockId == block.id }
+
     private var background: some View {
         RoundedRectangle(cornerRadius: 6)
             .fill(fillColor)
             .overlay(
                 RoundedRectangle(cornerRadius: 6)
-                    .stroke(Color(NSColor.windowBackgroundColor), lineWidth: 1)
+                    .stroke(isSelected ? Color.accentColor : Color(NSColor.windowBackgroundColor),
+                            lineWidth: isSelected ? 2 : 1)
             )
             .shadow(color: Color.black.opacity(isHovered ? 0.10 : 0), radius: isHovered ? 4 : 0, x: 0, y: 1)
     }
@@ -1436,6 +1519,9 @@ struct BlockRow: View {
                 NSCursor.arrow.set()
             }
         }
+        // Double before single, or SwiftUI swallows the double.
+        .onTapGesture(count: 2) { beginRename() }
+        .onTapGesture { state.selectedBlockId = block.id }
         .gesture(
             DragGesture(minimumDistance: 4)
                 .updating($moveDelta) { value, gestureState, _ in
@@ -1489,6 +1575,12 @@ struct BlockRow: View {
 
     /// The field only ever holds visible text, so the block's metadata comments
     /// are appended back before the title is written to the file.
+    private func beginRename() {
+        state.selectedBlockId = block.id
+        renamingText = strippingMetadataComments(state.titleWithoutDoneTag(block.title))
+        renamingBlockId = block.id
+    }
+
     private func commitRename() {
         let metadata = metadataComments(in: block.title)
         let edited = renamingText.trimmingCharacters(in: .whitespaces)
@@ -1619,7 +1711,10 @@ struct SlotRow: View {
                 .fill(slotFillColor)
                 .overlay(
                     RoundedRectangle(cornerRadius: 6)
-                        .stroke(slotTextColor.opacity(isHovered ? 0.28 : 0.14), lineWidth: 1)
+                        .stroke(state.selectedBlockId == block.id
+                                ? Color.accentColor
+                                : slotTextColor.opacity(isHovered ? 0.28 : 0.14),
+                                lineWidth: state.selectedBlockId == block.id ? 2 : 1)
                 )
 
             header
@@ -1679,7 +1774,8 @@ struct SlotRow: View {
             isHovered = hovering
             if hovering { NSCursor.openHand.set() } else { NSCursor.arrow.set() }
         }
-        .onTapGesture { onToggle() }
+        .onTapGesture(count: 2) { onToggle() }
+        .onTapGesture { state.selectedBlockId = block.id }
         .gesture(
             DragGesture(minimumDistance: 4)
                 .updating($moveDelta) { value, gestureState, _ in
@@ -1689,7 +1785,7 @@ struct SlotRow: View {
                 .onEnded { value in
                     state.isInteracting = false
                     let dy = value.translation.height
-                    if abs(dy) < 4 { return } // a click is an expand, not a move
+                    if abs(dy) < 4 { return } // a click selects, a double click opens
                     let rawMin = Int(dy / pxPerMin)
                     let snapped = Int((Double(rawMin) / Double(snapMinutes)).rounded()) * snapMinutes
                     state.moveSlot(block, byMinutes: snapped)
@@ -1735,6 +1831,8 @@ struct SlotDetailView: View {
 
     @State private var renamingBlockId: UUID?
     @State private var renamingText: String = ""
+    @State private var editingTitle: Bool = false
+    @State private var titleDraft: String = ""
 
     private var slot: Block? { state.slotBlock(named: slotName) }
     private var memberBlocks: [Block] { state.members(ofSlot: slotName) }
@@ -1788,10 +1886,29 @@ struct SlotDetailView: View {
                 .frame(minWidth: 18, minHeight: 18)
                 .background(RoundedRectangle(cornerRadius: 4).fill(slotTextColor.opacity(0.92)))
             VStack(alignment: .leading, spacing: 1) {
-                Text(slotName)
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundColor(slotTextColor)
-                    .lineLimit(1)
+                if editingTitle {
+                    TextField("Slot name", text: $titleDraft, onCommit: commitTitle)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(slotTextColor)
+                        .onSubmit(commitTitle)
+                        .onExitCommand { editingTitle = false }
+                } else {
+                    // One click to rename: an auto-named slot is called "3 tasks"
+                    // and wants a real name as soon as it is opened.
+                    Text(slotName)
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(slotTextColor)
+                        .lineLimit(1)
+                        .contentShape(Rectangle())
+                        .onHover { hovering in
+                            if hovering { NSCursor.iBeam.set() } else { NSCursor.arrow.set() }
+                        }
+                        .onTapGesture {
+                            titleDraft = slotName
+                            editingTitle = true
+                        }
+                }
                 Text("\(timeStr(slotStart)) - \(timeStr(slotEnd)) · \(compactDuration(spanMin))")
                     .font(.system(size: 11))
                     .foregroundColor(slotTextColor.opacity(0.55))
@@ -1847,6 +1964,11 @@ struct SlotDetailView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    private func commitTitle() {
+        state.renameSlot(from: slotName, to: titleDraft)
+        editingTitle = false
     }
 
     private func timeStr(_ min: Int) -> String {
