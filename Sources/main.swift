@@ -114,6 +114,30 @@ enum BlockStatus: String {
 /// that happens to contain "demo" or "UP-832" cannot mislabel a block.
 let metadataCommentPattern = #"<!--.*?-->"#
 
+/// Time-slot palette, fixed rather than derived: Rolle picked these.
+extension Color {
+    init(hex: UInt32) {
+        self.init(
+            .sRGB,
+            red: Double((hex >> 16) & 0xFF) / 255.0,
+            green: Double((hex >> 8) & 0xFF) / 255.0,
+            blue: Double(hex & 0xFF) / 255.0,
+            opacity: 1.0
+        )
+    }
+}
+
+let slotFillColor = Color(hex: 0x1d123b)
+let slotTextColor = Color(hex: 0xece7f8)
+
+/// "3h", "1h30m", "45m" - the compact form Akiflow uses under a slot name.
+func compactDuration(_ minutes: Int) -> String {
+    let h = minutes / 60, m = minutes % 60
+    if h > 0 && m > 0 { return "\(h)h\(m)m" }
+    if h > 0 { return "\(h)h" }
+    return "\(m)m"
+}
+
 func strippingMetadataComments(_ text: String) -> String {
     text.replacingOccurrences(of: metadataCommentPattern, with: "", options: .regularExpression)
         .replacingOccurrences(of: #" {2,}"#, with: " ", options: .regularExpression)
@@ -140,6 +164,26 @@ struct Block: Identifiable, Equatable {
     var visibleTitle: String { strippingMetadataComments(title) }
 
     var durationMin: Int { endMin - startMin }
+
+    /// The Akiflow time slot this block sits inside, from a `<!-- slot:NAME -->`
+    /// marker the planner writes onto the line. Nil when the block belongs to no
+    /// slot. Like every metadata comment it never reaches `visibleTitle`.
+    /// When set, this block IS a time slot rather than a task: a container that
+    /// collapses the blocks carrying the matching `<!-- slot:NAME -->`. Written by
+    /// the planner as `<!-- slot-def:NAME -->`.
+    var slotDef: String? { Block.marker(named: "slot-def", in: title) }
+
+    var slot: String? { Block.marker(named: "slot", in: title) }
+
+    static func marker(named key: String, in title: String) -> String? {
+        guard let regex = try? NSRegularExpression(pattern: "<!--\\s*\(key):(.+?)\\s*-->") else { return nil }
+        let range = NSRange(title.startIndex..<title.endIndex, in: title)
+        guard let match = regex.firstMatch(in: title, range: range),
+              let r = Range(match.range(at: 1), in: title) else { return nil }
+        let name = String(title[r]).trimmingCharacters(in: .whitespaces)
+        return name.isEmpty ? nil : name
+    }
+
 
     static func == (lhs: Block, rhs: Block) -> Bool {
         lhs.id == rhs.id &&
@@ -833,6 +877,20 @@ class DayState: ObservableObject {
         }
     }
 
+    /// Dragging a slot moves everything inside it, the way Akiflow does. Resizing
+    /// does not: stretching a container must not stretch the tasks it holds.
+    func moveSlot(_ slot: Block, byMinutes delta: Int) {
+        guard let name = slot.slotDef, delta != 0 else { return }
+        for idx in blocks.indices where blocks[idx].slot == name && blocks[idx].slotDef == nil {
+            blocks[idx].startMin = max(0, blocks[idx].startMin + delta)
+            blocks[idx].endMin = max(0, blocks[idx].endMin + delta)
+        }
+        guard let sIdx = blocks.firstIndex(of: slot) else { return }
+        blocks[sIdx].startMin = max(0, blocks[sIdx].startMin + delta)
+        blocks[sIdx].endMin = max(0, blocks[sIdx].endMin + delta)
+        scheduleSave()
+    }
+
     func addBlock(at startMin: Int) {
         let snapped = snap(startMin)
         let block = Block(status: .planned, startMin: snapped, endMin: snapped + 30, title: "New block")
@@ -912,6 +970,7 @@ class DayState: ObservableObject {
 
 struct DayTimelineView: View {
     @ObservedObject var state: DayState
+    @State private var expandedSlots: Set<String> = []
     @State private var renamingBlockId: UUID?
     @State private var renamingText: String = ""
     @AppStorage("day-timeline.followNow") private var followNow: Bool = true
@@ -1097,13 +1156,59 @@ struct DayTimelineView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
+    /// Blocks that belong to a collapsed slot are not drawn at all; the slot row
+    /// stands in for them. Expanding a slot reveals its members, inset inside it.
+    private var slotDefs: [Block] { state.blocks.filter { $0.slotDef != nil } }
+
+    private func members(of slotName: String) -> [Block] {
+        state.blocks.filter { $0.slot == slotName && $0.slotDef == nil }
+            .sorted { $0.startMin < $1.startMin }
+    }
+
+    /// Every slot name that actually has a defining row, so a stray `slot:`
+    /// marker with no container still renders as an ordinary block.
+    private var definedSlotNames: Set<String> { Set(slotDefs.compactMap { $0.slotDef }) }
+
+    private var looseBlocks: [Block] {
+        state.blocks.filter { block in
+            guard block.slotDef == nil else { return false }
+            guard let slot = block.slot, definedSlotNames.contains(slot) else { return true }
+            return expandedSlots.contains(slot)
+        }
+    }
+
     private var blocksLayer: some View {
         ZStack(alignment: .topLeading) {
-            ForEach(state.blocks) { block in
+            ForEach(slotDefs) { slot in
+                SlotRow(
+                    block: slot,
+                    memberCount: members(of: slot.slotDef ?? "").count,
+                    isExpanded: expandedSlots.contains(slot.slotDef ?? ""),
+                    state: state,
+                    dayStartMin: dayStartMin,
+                    onToggle: { toggleSlot(slot.slotDef ?? "") }
+                )
+            }
+            ForEach(looseBlocks) { block in
                 blockView(block)
+                    .padding(.leading, isInsideExpandedSlot(block) ? 18 : 0)
             }
         }
         .padding(.leading, 56) // leave hour-label gutter
+    }
+
+    private func isInsideExpandedSlot(_ block: Block) -> Bool {
+        guard let slot = block.slot else { return false }
+        return definedSlotNames.contains(slot) && expandedSlots.contains(slot)
+    }
+
+    private func toggleSlot(_ name: String) {
+        guard !name.isEmpty else { return }
+        if expandedSlots.contains(name) {
+            expandedSlots.remove(name)
+        } else {
+            expandedSlots.insert(name)
+        }
     }
 
     @ViewBuilder
@@ -1441,6 +1546,138 @@ extension DayState {
         let range = NSRange(title.startIndex..<title.endIndex, in: title)
         return regex.stringByReplacingMatches(in: title, range: range, withTemplate: "")
             .trimmingCharacters(in: .whitespaces)
+    }
+}
+
+// MARK: - Time slot row (Akiflow-style collapsed container)
+
+/// A time slot: a container block that hides the tasks inside it until clicked.
+/// It drags, resizes and persists exactly like an ordinary block, because it IS
+/// one - a line in the Day Planner carrying a `<!-- slot-def:NAME -->` marker.
+struct SlotRow: View {
+    let block: Block
+    let memberCount: Int
+    let isExpanded: Bool
+    let state: DayState
+    let dayStartMin: Int
+    let onToggle: () -> Void
+
+    @GestureState private var moveDelta: CGFloat = 0
+    @GestureState private var topResizeDelta: CGFloat = 0
+    @GestureState private var bottomResizeDelta: CGFloat = 0
+    @State private var isHovered: Bool = false
+
+    private var pxPerMin: CGFloat { state.pixelsPerMinute }
+    private var liveStartMin: Int { block.startMin + Int((moveDelta + topResizeDelta) / pxPerMin) }
+    private var liveEndMin: Int { block.endMin + Int((moveDelta + bottomResizeDelta) / pxPerMin) }
+    private var topOffset: CGFloat { CGFloat(liveStartMin - dayStartMin) * pxPerMin }
+    private var height: CGFloat { max(24, CGFloat(liveEndMin - liveStartMin) * pxPerMin) }
+    private var name: String { block.slotDef ?? block.visibleTitle }
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            RoundedRectangle(cornerRadius: 6)
+                .fill(slotFillColor)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(slotTextColor.opacity(isHovered ? 0.28 : 0.14), lineWidth: 1)
+                )
+
+            header
+
+            resizeHandle(top: true)
+                .frame(maxWidth: .infinity, alignment: .topLeading)
+            resizeHandle(top: false)
+                .frame(maxWidth: .infinity, alignment: .bottomLeading)
+                .offset(y: max(0, height - 6))
+        }
+        .frame(height: height, alignment: .top)
+        .clipped()
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .offset(x: 0, y: topOffset)
+        .padding(.trailing, 12)
+        .contextMenu {
+            Button(isExpanded ? "Collapse slot" : "Expand slot") { onToggle() }
+            Divider()
+            Button("Delete slot", role: .destructive) { state.deleteBlock(block) }
+        }
+    }
+
+    /// Count badge, then the name, then the compact duration underneath.
+    private var header: some View {
+        VStack(alignment: .leading, spacing: 1) {
+            HStack(alignment: .center, spacing: 6) {
+                Text("\(memberCount)")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundColor(slotFillColor)
+                    .frame(minWidth: 15, minHeight: 15)
+                    .background(
+                        RoundedRectangle(cornerRadius: 3)
+                            .fill(slotTextColor.opacity(0.92))
+                    )
+                Text(name)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(slotTextColor)
+                    .lineLimit(1)
+                Spacer(minLength: 6)
+                if isExpanded {
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundColor(slotTextColor.opacity(0.6))
+                }
+            }
+            Text(compactDuration(max(0, liveEndMin - liveStartMin)))
+                .font(.system(size: 10))
+                .foregroundColor(slotTextColor.opacity(0.55))
+                .padding(.leading, 21)
+        }
+        .padding(.top, 5)
+        .padding(.leading, 7)
+        .padding(.trailing, 10)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .contentShape(Rectangle())
+        .onHover { hovering in
+            isHovered = hovering
+            if hovering { NSCursor.openHand.set() } else { NSCursor.arrow.set() }
+        }
+        .onTapGesture { onToggle() }
+        .gesture(
+            DragGesture(minimumDistance: 4)
+                .updating($moveDelta) { value, gestureState, _ in
+                    gestureState = value.translation.height
+                }
+                .onEnded { value in
+                    let dy = value.translation.height
+                    if abs(dy) < 4 { return } // a click is an expand, not a move
+                    let rawMin = Int(dy / pxPerMin)
+                    let snapped = Int((Double(rawMin) / Double(snapMinutes)).rounded()) * snapMinutes
+                    state.moveSlot(block, byMinutes: snapped)
+                }
+        )
+    }
+
+    @ViewBuilder
+    private func resizeHandle(top: Bool) -> some View {
+        Rectangle()
+            .fill(Color.white.opacity(0.0001))
+            .frame(height: 6)
+            .onHover { hovering in
+                if hovering { NSCursor.resizeUpDown.set() } else { NSCursor.arrow.set() }
+            }
+            .highPriorityGesture(
+                DragGesture(minimumDistance: 1)
+                    .updating(top ? $topResizeDelta : $bottomResizeDelta) { value, gestureState, _ in
+                        gestureState = value.translation.height
+                    }
+                    .onEnded { value in
+                        let dyMin = Int(value.translation.height / pxPerMin)
+                        if top {
+                            state.updateTime(block, newStartMin: block.startMin + dyMin, newEndMin: block.endMin)
+                        } else {
+                            state.updateTime(block, newStartMin: block.startMin, newEndMin: block.endMin + dyMin)
+                        }
+                    }
+            )
     }
 }
 

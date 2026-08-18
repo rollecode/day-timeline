@@ -1,3 +1,11 @@
+### 1.1.0: 2026-08-18
+
+* Add Akiflow-style collapsible time slots
+* Hide member tasks until a slot is clicked
+* Show task count badge and compact duration
+* Drag, resize and delete slots like blocks
+* Move a slot's tasks along with it
+
 ### 1.0.1: 2026-08-17
 
 * Hide `<!-- cal: -->` id comments from blocks
