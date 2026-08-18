@@ -1,3 +1,7 @@
+### 1.3.7: 2026-08-18
+
+* Add an Edit menu so copy and paste work
+
 ### 1.3.6: 2026-08-18
 
 * Cancel a popup edit with Escape before closing it
