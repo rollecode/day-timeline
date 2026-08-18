@@ -1,3 +1,10 @@
+### 1.4.0: 2026-08-18
+
+* Right click a block to open it in its own service
+* Derive Todoist, Linear and Calendar links from planner markers
+* Offer markdown, bare and wikilink targets from the title
+* Give slots the same link menu
+
 ### 1.3.7: 2026-08-18
 
 * Add an Edit menu so copy and paste work

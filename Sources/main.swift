@@ -209,6 +209,112 @@ struct Block: Identifiable, Equatable {
     }
 }
 
+// MARK: - External links
+
+/// A destination the right-click menu can open for a block.
+struct BlockLink: Identifiable {
+    let label: String
+    let url: URL
+    var id: String { url.absoluteString }
+}
+
+/// Linear workspace slug, used to turn a `lin:UP-858` marker into a URL.
+let linearWorkspace = Settings.string("linearWorkspace", default: "dude")
+
+/// Friendly name for a host, so the menu reads "Open in Slack" rather than
+/// naming a domain. Unknown hosts fall back to the bare host, which is still
+/// more useful than a generic "Open link".
+func linkLabel(for url: URL) -> String {
+    guard let host = url.host?.lowercased() else { return "Open link" }
+    let known: [(String, String)] = [
+        ("todoist.com", "Todoist"),
+        ("linear.app", "Linear"),
+        ("slack.com", "Slack"),
+        ("calendar.google.com", "Google Calendar"),
+        ("betterstack.com", "Better Stack"),
+        ("docs.dude.fi", "Outline"),
+        ("github.com", "GitHub"),
+    ]
+    for (needle, name) in known where host == needle || host.hasSuffix("." + needle) {
+        return "Open in \(name)"
+    }
+    return "Open \(host.hasPrefix("www.") ? String(host.dropFirst(4)) : host)"
+}
+
+func obsidianNoteURL(_ target: String) -> URL? {
+    guard let vault = obsidianVaultName.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+          let file = target.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else { return nil }
+    return URL(string: "obsidian://open?vault=\(vault)&file=\(file)")
+}
+
+/// Google's own event deep link needs an `eid` that is base64 of
+/// "<event id> <calendar id>", and the planner only ever writes the event id.
+/// Guessing the calendar lands on an error page, so the day view is used: one
+/// click from the event and it always resolves.
+func googleCalendarDayURL(for date: Date) -> String {
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = planTimeZone
+    let c = calendar.dateComponents([.year, .month, .day], from: date)
+    return "https://calendar.google.com/calendar/u/0/r/day/\(c.year ?? 2026)/\(c.month ?? 1)/\(c.day ?? 1)"
+}
+
+extension Block {
+    /// Everything this block can be opened in. The planner's id markers come
+    /// first, then any markdown link or `[[wikilink]]` left in the title, so a
+    /// Slack thread or a Better Stack incident is reachable without needing a
+    /// marker of its own. Deduplicated by URL, because a `lin:` marker and a
+    /// markdown link to the same issue are one destination, not two.
+    func externalLinks(on date: Date) -> [BlockLink] {
+        var found: [BlockLink] = []
+        var seen = Set<String>()
+
+        func add(_ label: String, _ url: URL?) {
+            guard let url, seen.insert(url.absoluteString).inserted else { return }
+            found.append(BlockLink(label: label, url: url))
+        }
+
+        if let id = Block.marker(named: "td", in: title) {
+            add("Open in Todoist", URL(string: "https://app.todoist.com/app/task/\(id)"))
+        }
+        if let key = Block.marker(named: "lin", in: title) {
+            add("Open in Linear", URL(string: "https://linear.app/\(linearWorkspace)/issue/\(key)"))
+        }
+        if Block.marker(named: "cal", in: title) != nil {
+            add("Open in Google Calendar", URL(string: googleCalendarDayURL(for: date)))
+        }
+
+        for raw in Block.matches(#"\[[^\]]*\]\((https?://[^)\s]+)\)"#, in: title) {
+            guard let url = URL(string: raw) else { continue }
+            add(linkLabel(for: url), url)
+        }
+
+        // Bare URLs too, because a Slack thread usually gets pasted unwrapped.
+        // A markdown link's target matches here as well and is dropped by the
+        // dedup, so this pass never doubles an entry.
+        for raw in Block.matches(#"(https?://[^\s)\]]+)"#, in: title) {
+            guard let url = URL(string: raw) else { continue }
+            add(linkLabel(for: url), url)
+        }
+
+        for target in Block.matches(#"\[\[([^\]|]+)"#, in: title) {
+            let name = target.split(separator: "/").last.map(String.init) ?? target
+            add("Open note: \(name)", obsidianNoteURL(target))
+        }
+
+        return found
+    }
+
+    /// Every first capture group of `pattern` in `text`, in order.
+    static func matches(_ pattern: String, in text: String) -> [String] {
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
+        let range = NSRange(text.startIndex..<text.endIndex, in: text)
+        return regex.matches(in: text, range: range).compactMap { match in
+            guard let r = Range(match.range(at: 1), in: text) else { return nil }
+            return String(text[r]).trimmingCharacters(in: .whitespaces)
+        }
+    }
+}
+
 // MARK: - Block decoration (meeting detection + service icons)
 
 enum ServiceIcon: String, CaseIterable {
@@ -1592,6 +1698,9 @@ struct BlockRow: View {
         .offset(x: 0, y: topOffset)
         .padding(.trailing, 12)
         .contextMenu {
+            ForEach(block.externalLinks(on: state.date)) { link in
+                Button(link.label) { NSWorkspace.shared.open(link.url) }
+            }
             Button("Open in Obsidian") { openInObsidian() }
             Divider()
             Button("Mark planned") { state.setStatus(block, .planned) }
@@ -1921,6 +2030,9 @@ struct SlotRow: View {
         .padding(.trailing, 12)
         .contextMenu {
             Button(isExpanded ? "Collapse slot" : "Expand slot") { onToggle() }
+            ForEach(block.externalLinks(on: state.date)) { link in
+                Button(link.label) { NSWorkspace.shared.open(link.url) }
+            }
             Divider()
             Button("Delete slot", role: .destructive) { state.deleteBlock(block) }
         }
