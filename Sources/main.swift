@@ -752,6 +752,19 @@ class DayState: ObservableObject {
     /// Single click selects; double click acts. Selection is view state but lives
     /// here so a slot and its blocks cannot disagree about what is selected.
     @Published var selectedBlockId: UUID? = nil
+    /// The slot popup's edit state lives here rather than in the view, so the
+    /// Escape monitor can cancel an edit instead of closing the whole window.
+    @Published var slotRenamingBlockId: UUID? = nil
+    @Published var slotRenamingText: String = ""
+    @Published var slotTitleEditing: Bool = false
+
+    var slotWindowIsEditing: Bool { slotRenamingBlockId != nil || slotTitleEditing }
+
+    func clearSlotEditing() {
+        slotRenamingBlockId = nil
+        slotRenamingText = ""
+        slotTitleEditing = false
+    }
     private var lastAutoCompleteCheckMinute: Int = Int.min
 
     init() {
@@ -1286,7 +1299,13 @@ struct DayTimelineView: View {
             // The slot window carries the slot's name as its title, which is how we
             // tell the two windows apart from a single app-wide monitor.
             if let open = state.openSlotName, NSApp.keyWindow?.title == open {
-                state.openSlotName = nil
+                // Escape cancels the edit first; only a second press closes the window.
+                if state.slotWindowIsEditing {
+                    state.clearSlotEditing()
+                    NSApp.keyWindow?.makeFirstResponder(nil)
+                } else {
+                    state.openSlotName = nil
+                }
                 return nil
             }
             let wasActive = renamingBlockId != nil || state.selectedBlockId != nil
@@ -1717,7 +1736,7 @@ struct BlockRow: View {
             .onAppear { fieldFocused = true }
         }
         .padding(.top, 4)
-        .padding(.leading, 8)
+        .padding(.leading, 6)
         .padding(.trailing, 10)
         .padding(.bottom, 6)
         .frame(maxWidth: .infinity, alignment: .topLeading)
@@ -2009,12 +2028,14 @@ struct SlotDetailView: View {
     @ObservedObject var state: DayState
     let slotName: String
 
-    @State private var renamingBlockId: UUID?
-    @State private var renamingText: String = ""
-    @State private var editingTitle: Bool = false
     @State private var titleDraft: String = ""
     @FocusState private var titleFocused: Bool
     @State private var cascadedCount: Int = 0
+
+    private var editingTitle: Bool {
+        get { state.slotTitleEditing }
+        nonmutating set { state.slotTitleEditing = newValue }
+    }
 
     private var slot: Block? { state.slotBlock(named: slotName) }
     private var memberBlocks: [Block] { state.members(ofSlot: slotName) }
@@ -2040,13 +2061,19 @@ struct SlotDetailView: View {
                     let scale = usable / CGFloat(spanMin)
                     ZStack(alignment: .topLeading) {
                         grid(scale: scale)
+                        Color.clear
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                state.clearSlotEditing()
+                                state.selectedBlockId = nil
+                            }
                         ForEach(memberBlocks) { block in
                             BlockRow(
                                 block: block,
                                 state: state,
                                 dayStartMin: slotStart,
-                                renamingBlockId: $renamingBlockId,
-                                renamingText: $renamingText,
+                                renamingBlockId: $state.slotRenamingBlockId,
+                                renamingText: $state.slotRenamingText,
                                 pxPerMinOverride: scale
                             )
                         }

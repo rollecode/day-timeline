@@ -1,3 +1,9 @@
+### 1.3.6: 2026-08-18
+
+* Cancel a popup edit with Escape before closing it
+* Cancel a popup edit by clicking empty space
+* Nudge the rename field two pixels left
+
 ### 1.3.5: 2026-08-18
 
 * Bring the timeline back to the slot popup
