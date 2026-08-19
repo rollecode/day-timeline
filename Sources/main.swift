@@ -285,17 +285,23 @@ struct Block: Identifiable, Equatable {
     }
 }
 
-/// Pixel drag delta to a snapped minute delta.
+/// Pixel drag delta to a snapped minute delta, the way a calendar behaves.
 ///
-/// Two things were wrong before. `Int()` truncates toward zero, so dragging up
-/// and dragging down behaved differently and a two-minute dead zone straddled
-/// the origin. And the live preview used raw minutes while `.onEnded` snapped to
-/// `snapMinutes`, so every drag ended by jumping up to seven minutes away from
-/// where the block had been sitting under the cursor. Snapping in one place, used
-/// by both the preview and the commit, makes the drag show what it will do.
+/// The old code did `Int(delta / pxPerMin)` and then multiplied back up to pixels
+/// to position the block. At the default zoom one minute is about 1.2px, so the
+/// block advanced in 1.2px steps while the cursor moved continuously, and any
+/// sub-pixel jitter flipped it back and forth across a boundary. That is the
+/// visible flicker: dragging felt like scraping a stone over concrete.
+///
+/// Snapping to `snapMinutes` makes the quantum roughly 18px instead of 1.2px, so
+/// crossing a boundary is decisive and jitter cannot flip it. It also means the
+/// preview lands exactly where the release will put the block, instead of
+/// tracking per-minute and then jumping up to seven minutes on `.onEnded`.
 func snappedMinutes(_ delta: CGFloat, pxPerMin: CGFloat) -> Int {
     guard pxPerMin > 0 else { return 0 }
     let raw = Double(delta / pxPerMin)
+    // rounded(), not Int(): Int truncates toward zero, so the same 40px drag gave
+    // -33 minutes upward and +33 downward, with a dead zone straddling the origin.
     return Int((raw / Double(snapMinutes)).rounded()) * snapMinutes
 }
 
@@ -1886,8 +1892,16 @@ struct BlockRow: View {
         // Double before single, or SwiftUI swallows the double.
         .onTapGesture(count: 2) { beginRename() }
         .onTapGesture { state.selectedBlockId = block.id }
+        // .global, not the default .local: the block's position is derived from this
+        // gesture's own translation, and .local measures translation against the view
+        // being dragged. Moving the block therefore changed the thing the translation
+        // was measured from, which fed back into the position - the block oscillated
+        // between two placements for as long as the mouse was held down. The amplitude
+        // was one quantum, so it read as ~1px jitter while the preview tracked single
+        // minutes and as violent 18px thrashing once the preview snapped to 15.
+        // A stationary reference breaks the loop; the snapping is unrelated to it.
         .gesture(
-            DragGesture(minimumDistance: 4)
+            DragGesture(minimumDistance: 4, coordinateSpace: .global)
                 .updating($moveDelta) { value, gestureState, _ in
                     gestureState = value.translation.height
                     state.isInteracting = true
@@ -1980,9 +1994,8 @@ struct BlockRow: View {
                     NSCursor.arrow.set()
                 }
             }
-            .allowsHitTesting(moveDelta == 0)
             .highPriorityGesture(
-                DragGesture(minimumDistance: 1)
+                DragGesture(minimumDistance: 1, coordinateSpace: .global)
                     .updating(top ? $topResizeDelta : $bottomResizeDelta) { value, gestureState, _ in
                         gestureState = value.translation.height
                         state.isInteracting = true
@@ -2158,7 +2171,7 @@ struct SlotRow: View {
             .onTapGesture(count: 2) { onToggle() }
             .onTapGesture { state.selectedBlockId = block.id }
             .gesture(
-                DragGesture(minimumDistance: 4)
+                DragGesture(minimumDistance: 4, coordinateSpace: .global)
                     .updating($moveDelta) { value, gestureState, _ in
                         gestureState = value.translation.height
                         state.isInteracting = true
@@ -2221,9 +2234,8 @@ struct SlotRow: View {
             .onHover { hovering in
                 if hovering { NSCursor.resizeUpDown.set() } else { NSCursor.arrow.set() }
             }
-            .allowsHitTesting(moveDelta == 0)
             .highPriorityGesture(
-                DragGesture(minimumDistance: 1)
+                DragGesture(minimumDistance: 1, coordinateSpace: .global)
                     .updating(top ? $topResizeDelta : $bottomResizeDelta) { value, gestureState, _ in
                         gestureState = value.translation.height
                         state.isInteracting = true

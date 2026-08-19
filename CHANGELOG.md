@@ -1,3 +1,8 @@
+### 1.4.3: 2026-08-19
+
+* Measure block drags against a fixed reference
+* Drop the hit-testing toggle that cancelled drags
+
 ### 1.4.2: 2026-08-19
 
 * Snap the drag preview so blocks stop jumping on release
