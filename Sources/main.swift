@@ -285,6 +285,20 @@ struct Block: Identifiable, Equatable {
     }
 }
 
+/// Pixel drag delta to a snapped minute delta.
+///
+/// Two things were wrong before. `Int()` truncates toward zero, so dragging up
+/// and dragging down behaved differently and a two-minute dead zone straddled
+/// the origin. And the live preview used raw minutes while `.onEnded` snapped to
+/// `snapMinutes`, so every drag ended by jumping up to seven minutes away from
+/// where the block had been sitting under the cursor. Snapping in one place, used
+/// by both the preview and the commit, makes the drag show what it will do.
+func snappedMinutes(_ delta: CGFloat, pxPerMin: CGFloat) -> Int {
+    guard pxPerMin > 0 else { return 0 }
+    let raw = Double(delta / pxPerMin)
+    return Int((raw / Double(snapMinutes)).rounded()) * snapMinutes
+}
+
 // MARK: - External links
 
 /// A destination the right-click menu can open for a block.
@@ -1733,11 +1747,11 @@ struct BlockRow: View {
     private var pxPerMin: CGFloat { pxPerMinOverride ?? state.pixelsPerMinute }
 
     private var liveStartMin: Int {
-        block.startMin + Int((moveDelta + topResizeDelta) / pxPerMin)
+        block.startMin + snappedMinutes(moveDelta + topResizeDelta, pxPerMin: pxPerMin)
     }
 
     private var liveEndMin: Int {
-        block.endMin + Int((moveDelta + bottomResizeDelta) / pxPerMin)
+        block.endMin + snappedMinutes(moveDelta + bottomResizeDelta, pxPerMin: pxPerMin)
     }
 
     private var topOffset: CGFloat {
@@ -1882,8 +1896,7 @@ struct BlockRow: View {
                     state.isInteracting = false
                     let dy = value.translation.height
                     if abs(dy) < 4 { return } // pure click, ignore (right-click for menu)
-                    let rawMin = Int(dy / pxPerMin)
-                    let snapped = Int((Double(rawMin) / Double(snapMinutes)).rounded()) * snapMinutes
+                    let snapped = snappedMinutes(dy, pxPerMin: pxPerMin)
                     let newStart = block.startMin + snapped
                     let newEnd = block.endMin + snapped
                     state.updateTime(block, newStartMin: newStart, newEndMin: newEnd)
@@ -1967,6 +1980,7 @@ struct BlockRow: View {
                     NSCursor.arrow.set()
                 }
             }
+            .allowsHitTesting(moveDelta == 0)
             .highPriorityGesture(
                 DragGesture(minimumDistance: 1)
                     .updating(top ? $topResizeDelta : $bottomResizeDelta) { value, gestureState, _ in
@@ -1975,7 +1989,7 @@ struct BlockRow: View {
                     }
                     .onEnded { value in
                         state.isInteracting = false
-                        let dyMin = Int(value.translation.height / pxPerMin)
+                        let dyMin = snappedMinutes(value.translation.height, pxPerMin: pxPerMin)
                         if top {
                             let newStart = block.startMin + dyMin
                             state.updateTime(block, newStartMin: newStart, newEndMin: block.endMin)
@@ -2087,8 +2101,8 @@ struct SlotRow: View {
     @State private var isHovered: Bool = false
 
     private var pxPerMin: CGFloat { state.pixelsPerMinute }
-    private var liveStartMin: Int { block.startMin + Int((moveDelta + topResizeDelta) / pxPerMin) }
-    private var liveEndMin: Int { block.endMin + Int((moveDelta + bottomResizeDelta) / pxPerMin) }
+    private var liveStartMin: Int { block.startMin + snappedMinutes(moveDelta + topResizeDelta, pxPerMin: pxPerMin) }
+    private var liveEndMin: Int { block.endMin + snappedMinutes(moveDelta + bottomResizeDelta, pxPerMin: pxPerMin) }
     private var topOffset: CGFloat { CGFloat(liveStartMin - dayStartMin) * pxPerMin }
     private var height: CGFloat { max(24, CGFloat(liveEndMin - liveStartMin) * pxPerMin) }
     private var name: String { block.slotDef ?? block.visibleTitle }
@@ -2207,6 +2221,7 @@ struct SlotRow: View {
             .onHover { hovering in
                 if hovering { NSCursor.resizeUpDown.set() } else { NSCursor.arrow.set() }
             }
+            .allowsHitTesting(moveDelta == 0)
             .highPriorityGesture(
                 DragGesture(minimumDistance: 1)
                     .updating(top ? $topResizeDelta : $bottomResizeDelta) { value, gestureState, _ in
@@ -2215,7 +2230,7 @@ struct SlotRow: View {
                     }
                     .onEnded { value in
                         state.isInteracting = false
-                        let dyMin = Int(value.translation.height / pxPerMin)
+                        let dyMin = snappedMinutes(value.translation.height, pxPerMin: pxPerMin)
                         if top {
                             state.updateTime(block, newStartMin: block.startMin + dyMin, newEndMin: block.endMin)
                         } else {

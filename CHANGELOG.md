@@ -1,3 +1,9 @@
+### 1.4.2: 2026-08-19
+
+* Snap the drag preview so blocks stop jumping on release
+* Round drag deltas instead of truncating toward zero
+* Ignore resize handles while a move is in flight
+
 ### 1.4.1: 2026-08-18
 
 * Cache compiled regexes instead of rebuilding them per frame
