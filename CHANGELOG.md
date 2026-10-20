@@ -1,3 +1,7 @@
+### 1.4.5: 2026-10-20
+
+* Use a fixed near-black background instead of the system colour
+
 ### 1.4.4: 2026-10-20
 
 * Stop ticking blocks done when their end time passes

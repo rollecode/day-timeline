@@ -3,6 +3,8 @@ import AppKit
 import CoreText
 import Combine
 
+let appBackground = Color(red: 0x1E / 255.0, green: 0x1E / 255.0, blue: 0x1E / 255.0)
+
 // MARK: - Settings
 //
 // Nothing here needs a rebuild to change. Every value falls back to the
@@ -1470,7 +1472,7 @@ struct DayTimelineView: View {
             zoomControls
                 .padding(12)
         }
-        .background(Color(NSColor.windowBackgroundColor))
+        .background(appBackground)
         .onAppear { installEscapeMonitor() }
         .onDisappear {
             if let m = escapeMonitor { NSEvent.removeMonitor(m) }
@@ -1823,7 +1825,7 @@ struct BlockRow: View {
             .fill(fillColor)
             .overlay(
                 RoundedRectangle(cornerRadius: 6)
-                    .stroke(isSelected ? Color.accentColor : Color(NSColor.windowBackgroundColor),
+                    .stroke(isSelected ? Color.accentColor : appBackground,
                             lineWidth: isSelected ? 2 : 1)
             )
             .shadow(color: Color.black.opacity(isHovered ? 0.10 : 0), radius: isHovered ? 4 : 0, x: 0, y: 1)
