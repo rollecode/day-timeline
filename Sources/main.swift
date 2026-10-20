@@ -973,7 +973,6 @@ class DayState: ObservableObject {
         slotRenamingText = ""
         slotTitleEditing = false
     }
-    private var lastAutoCompleteCheckMinute: Int = Int.min
 
     init() {
         self.watcher = FileWatcher(onChange: {})
@@ -1080,8 +1079,6 @@ class DayState: ObservableObject {
         self.header = parsed.dayPlannerHeader.isEmpty ? "## Day Planner" : parsed.dayPlannerHeader
         self.blocks = Self.carryingIds(from: self.blocks, onto: parsed.blocks)
         self.lastError = nil
-        self.lastAutoCompleteCheckMinute = Int.min
-        autoCompleteElapsed()
         autoGroupOverlaps()
         if let attrs = try? FileManager.default.attributesOfItem(atPath: path),
            let mtime = attrs[.modificationDate] as? Date {
@@ -1395,22 +1392,6 @@ class DayState: ObservableObject {
         let comps = cal.dateComponents([.hour, .minute, .second], from: Date())
         nowMinute = (comps.hour ?? 0) * 60 + (comps.minute ?? 0)
         SecondsClock.shared.second = comps.second ?? 0
-        autoCompleteElapsed()
-    }
-
-    private func autoCompleteElapsed() {
-        var changed = false
-        for i in blocks.indices {
-            let b = blocks[i]
-            guard b.status == .planned || b.status == .inProgress else { continue }
-            if b.endMin > lastAutoCompleteCheckMinute && b.endMin <= nowMinute {
-                blocks[i].status = .done
-                blocks[i].title = applyDoneTag(b.title, status: .done, at: b.endMin)
-                changed = true
-            }
-        }
-        lastAutoCompleteCheckMinute = nowMinute
-        if changed { scheduleSave() }
     }
 }
 

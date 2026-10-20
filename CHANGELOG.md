@@ -1,3 +1,7 @@
+### 1.4.4: 2026-10-20
+
+* Stop ticking blocks done when their end time passes
+
 ### 1.4.3: 2026-08-19
 
 * Measure block drags against a fixed reference
